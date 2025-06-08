@@ -30,6 +30,7 @@ export interface Note {
   sharedWith: Share[];
   createdAt: string;
   updatedAt: string;
+  isSharedByCurrentUser?: boolean; // New field
 }
 
 export interface DecodedToken {
