@@ -98,12 +98,22 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
       setSelectedUser(null);
       setEmailQuery('');
       setSearchResults([]);
-      if (onNoteShared) onNoteShared();
+      if (onNoteShared) onNoteShared(); // Refresh the note details to show the new shared user
+      // Fetch updated shared users list for the modal
+      if (note?._id) {
+        const updatedNoteResponse = await api.get<Note>(`/notes/${note._id}`);
+        setSharedUsers(updatedNoteResponse.data.sharedWith || []);
+      }
     } catch (shareError) {
       let message = 'Could not share the note.';
       if (shareError instanceof AxiosError) {
         const errorData = shareError.response?.data as ApiErrorResponse | undefined;
-        if (errorData?.message) message = errorData.message;
+        // Check for the specific 404 error when user email is not found
+        if (shareError.response?.status === 404 && errorData?.message && errorData.message.includes('User with email')) {
+          message = errorData.message; // Use the specific message from the backend
+        } else if (errorData?.message) {
+          message = errorData.message;
+        }
       }
       toast({
         title: 'Error Sharing Note',
@@ -121,7 +131,9 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
         title: 'User Unshared',
         description: 'User has been removed from this note.',
       });
-      if (onNoteShared) onNoteShared();
+      if (onNoteShared) onNoteShared(); // Refresh the note details
+      // Update local state for shared users
+      setSharedUsers(prevSharedUsers => prevSharedUsers.filter(su => (typeof su.userId === 'string' ? su.userId : (su.userId as User)._id) !== userIdToUnshare));
     } catch (unshareError) {
       let message = 'Could not unshare the note.';
       if (unshareError instanceof AxiosError) {
@@ -145,15 +157,35 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
         return;
       }
 
+      // Ensure userToUpdate.email is available. If userId is an object, it should have email.
+      // If userId is a string, we might need to fetch the email or rely on it being in the sharedWith object.
+      let emailToUpdate = userToUpdate.email;
+      if (!emailToUpdate && typeof userToUpdate.userId === 'object' && userToUpdate.userId !== null && 'email' in userToUpdate.userId) {
+        emailToUpdate = (userToUpdate.userId as User).email;
+      }
+
+      if (!emailToUpdate) {
+        toast({ title: 'Error', description: 'Could not determine email for role update.', variant: 'destructive' });
+        return;
+      }
+
       await api.put(`/notes/${note._id}/share`, {
-        email: userToUpdate.email,
+        email: emailToUpdate, // Use the determined email
         role: newRole,
       });
       toast({
         title: 'Role Updated',
         description: `User role has been updated to ${newRole}.`,
       });
-      if (onNoteShared) onNoteShared();
+      if (onNoteShared) onNoteShared(); // Refresh the note details
+      // Update local state for shared users
+      setSharedUsers(prevSharedUsers => 
+        prevSharedUsers.map(su => 
+          (typeof su.userId === 'string' ? su.userId : (su.userId as User)._id) === userIdToUpdate 
+            ? { ...su, role: newRole } 
+            : su
+        )
+      );
     } catch (roleChangeError) {
       let message = 'Could not update user role.';
       if (roleChangeError instanceof AxiosError) {
