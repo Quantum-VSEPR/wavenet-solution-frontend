@@ -11,6 +11,24 @@ import { useToast } from '@/hooks/use-toast';
 import { useSocket } from '@/contexts/SocketContext';
 import { Share2, Save, ArrowLeft, Users, Trash2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import ShareModal from './ShareModal';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"; 
 import { AxiosError } from 'axios';
 import 'react-quill/dist/quill.snow.css'; // Import Quill styles
 import dynamic from 'next/dynamic';
@@ -59,6 +77,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'syncing' | 'error'>('synced');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isNewNote = noteId === 'new';
@@ -162,16 +181,11 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
 
   // handleSave
   const handleSave = useCallback(async (currentTitle: string, currentContent: string) => {
-    if (!user || isSaving) { // Prevent concurrent saves or saves when no user
+    if (!user || isSaving) { 
       return;
     }
 
     if (isReadOnlyView) {
-      toast({
-        title: "Read-only Access",
-        description: "You do not have permission to edit this note.",
-        variant: "destructive",
-      });
       return;
     }
     setIsSaving(true);
@@ -182,52 +196,38 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
 
     try {
       let response;
-      if (isNewNote && !note?._id) { // Creating a new note
+      if (isNewNote && !note?._id) { 
         response = await api.post('/notes', payload);
         savedNoteData = response.data as Note;
-        setNote(savedNoteData); // Set the full note object for the new note
-        router.replace(`/notes/${savedNoteData._id}`); // Navigate to the new note's URL
-        toast({ title: 'Note Created', description: 'Your note has been saved.' });
-      } else if (note?._id) { // Updating an existing note
+        setNote(savedNoteData); 
+        router.replace(`/notes/${savedNoteData._id}`); 
+      } else if (note?._id) { 
         response = await api.put(`/notes/${note._id}`, payload);
         savedNoteData = response.data as Note;
-        setNote(savedNoteData); // Update the note state with the full response
-        toast({ title: 'Note Saved', description: 'Your changes have been saved.' });
+        setNote(savedNoteData); 
       } else {
-        // This case should ideally not be reached if logic is correct
         console.error("handleSave called without a note ID for an existing note or for a new note properly.");
-        toast({title: "Save Error", description: "Cannot determine save operation.", variant: "destructive"});
         setSyncStatus('error');
-        // setIsSaving(false); // Moved to finally block
-        return; // Return early as setIsSaving(false) in finally will cover this path.
+        return; 
       }
 
-      // Common actions for both new and updated notes if save was successful
       if (savedNoteData) {
         setLastSaved(new Date(savedNoteData.updatedAt));
         setSyncStatus('synced');
         if (socket && savedNoteData._id) {
-          // Emit change to other clients/tabs
           socket.emit('noteChange', { roomId: savedNoteData._id, note: savedNoteData });
         }
       }
     } catch (saveError) {
       console.error('Failed to save note:', saveError);
       setSyncStatus('error');
-      const axiosError = saveError as AxiosError<{ message?: string }>; // More specific type
-      toast({
-        title: 'Error saving note',
-        description: axiosError?.response?.data?.message || 'Could not save your changes.',
-        variant: 'destructive',
-      });
-    } finally { // Ensure isSaving is reset
+    } finally { 
         setIsSaving(false);
     }
   }, [
     user,
     isSaving, 
     isReadOnlyView,
-    toast,
     setIsSaving,
     setSyncStatus,
     isNewNote,
@@ -286,21 +286,27 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     handleSave(title, content);
   };
 
-  // handleDelete
+  // handleDelete - Opens the confirmation dialog
   const handleDelete = async () => {
     if (!note || !note._id || isNewNote) return;
-    if (window.confirm('Are you sure you want to delete this note?')) {
-      try {
-        await api.delete(`/notes/${note._id}`);
-        toast({ title: 'Note Deleted', description: 'The note has been successfully deleted.'});
-        if (socket && note._id) {
-            socket.emit('noteDeleted', { roomId: note._id, noteId: note._id });
-        }
-        router.push('/dashboard');
-      } catch (deleteError) {
-        console.error('Failed to delete note:', deleteError);
-        toast({ title: 'Error Deleting Note', description: 'Could not delete the note.', variant: 'destructive' });
+    setIsDeleteDialogOpen(true);
+  };
+
+  // confirmDelete - Actual deletion logic
+  const confirmDelete = async () => {
+    if (!note || !note._id || isNewNote) return;
+    try {
+      await api.delete(`/notes/${note._id}`);
+      toast({ title: 'Note Deleted', description: 'The note has been successfully deleted.'});
+      if (socket && note._id) {
+          socket.emit('noteDeleted', { roomId: note._id, noteId: note._id });
       }
+      router.push('/dashboard');
+    } catch (deleteError) {
+      console.error('Failed to delete note:', deleteError);
+      toast({ title: 'Error Deleting Note', description: 'Could not delete the note.', variant: 'destructive' });
+    } finally {
+      setIsDeleteDialogOpen(false);
     }
   };
   
@@ -327,6 +333,18 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     }
   };
 
+  const SyncStatusIndicator = () => {
+    switch (syncStatus) {
+      case 'syncing':
+        return <span className="flex items-center text-sm text-muted-foreground"><Loader2 className="mr-1 h-4 w-4 animate-spin" />Syncing...</span>;
+      case 'error':
+        return <span className="flex items-center text-sm text-red-500"><AlertTriangle className="mr-1 h-4 w-4" />Error saving</span>;
+      case 'synced':
+      default:
+        return <span className="flex items-center text-sm text-green-600"><CheckCircle2 className="mr-1 h-4 w-4" />Synced</span>;
+    }
+  };
+
   return (
     <div className="container mx-auto p-4 md:p-8 max-w-3xl">
       <ShareModal 
@@ -335,6 +353,23 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
         note={note}
         onNoteShared={handleNoteShared} 
       />
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Are you sure you want to delete this note?</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete your note.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button variant="destructive" onClick={confirmDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Header section with Back, Share, Save, Delete buttons */}
       <div className="flex justify-between items-center mb-6">
         <Button variant="outline" onClick={() => router.push('/dashboard')} size="sm">
           <ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard
@@ -356,6 +391,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
         </div>
       </div>
 
+      {/* Note Title and Editor section */}
       <div className="mb-4">
         <Input
           placeholder="Note Title"
@@ -375,30 +411,44 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
           placeholder="Start writing your note..."
         />
       </div>
-      <div className="text-xs text-muted-foreground flex justify-between items-center">
-        <span className="flex items-center">
-          {syncStatus === 'syncing' && (
-            <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> Syncing...</>
+
+      {/* Footer section with collaborator count and last saved time */}
+      <div className="mt-8 pt-4 border-t flex justify-between items-center text-sm text-muted-foreground">
+        <div className="flex items-center space-x-4">
+          {note && note.sharedWith && note.sharedWith.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="flex items-center">
+                  <Users className="mr-2 h-4 w-4" />
+                  {note.sharedWith.length} {note.sharedWith.length === 1 ? 'Collaborator' : 'Collaborators'}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuLabel>Shared With</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {note.sharedWith.map((share) => {
+                  const collaborator = typeof share.userId === 'object' ? share.userId as User : null;
+                  const email = share.email || collaborator?.email || 'N/A';
+                  const name = collaborator?.name ? ` (${collaborator.name})` : '';
+                  return (
+                    <DropdownMenuItem key={typeof share.userId === 'string' ? share.userId : share.userId._id}>
+                      {email}{name} - <span className="capitalize text-xs ml-1">{share.role}</span>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
-          {syncStatus === 'error' && (
-            <><AlertTriangle className="mr-2 h-3.5 w-3.5 text-red-500" /> Sync error, try saving manually.</>
+          {note && !note.sharedWith?.length && (
+             <span className="flex items-center"><Users className="mr-2 h-4 w-4" />0 Collaborators</span>
           )}
-          {syncStatus === 'synced' && lastSaved && (
-            <><CheckCircle2 className="mr-2 h-3.5 w-3.5 text-green-500" /> Last saved: {new Date(lastSaved).toLocaleTimeString()}</>
+        </div>
+        <div className="flex items-center space-x-2">
+          <SyncStatusIndicator />
+          {lastSaved && (
+            <span className="ml-2">Last saved: {new Date(lastSaved).toLocaleTimeString()}</span>
           )}
-          {syncStatus === 'synced' && !lastSaved && isNewNote && (
-            <span className="text-muted-foreground">Start typing to auto-save.</span>
-          )}
-           {syncStatus === 'synced' && !lastSaved && !isNewNote && !isLoading && (
-            <><CheckCircle2 className="mr-2 h-3.5 w-3.5 text-green-500" /> Synced</>
-          )}
-        </span>
-        {note && !isNewNote && (
-            <div className="flex items-center">
-                <Users className="mr-1 h-3 w-3" />
-                <span>{note.sharedWith.length} collaborator{note.sharedWith.length !== 1 ? 's' : ''}</span>
-            </div>
-        )}
+        </div>
       </div>
     </div>
   );

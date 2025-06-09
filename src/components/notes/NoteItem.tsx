@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { AxiosError } from 'axios';
 
 interface NoteItemProps {
-  note: Note;
+  note: Note; // Note type already includes sharedWith via INote in @/types
   showCreator?: boolean;
   currentTab: 'myNotes' | 'sharedNotes' | 'archivedNotes';
   onNoteUpdate: () => Promise<void> | void; // Allow onNoteUpdate to be async or sync
@@ -48,6 +48,10 @@ const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentT
     // At this point, note.creator is a User object (since it's not string and not null/undefined)
     return note.creator._id === user._id;
   }, [user, note.creator]);
+
+  const isShared = useMemo(() => {
+    return note.sharedWith && note.sharedWith.length > 0;
+  }, [note.sharedWith]);
 
   const handleArchiveNote = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -127,11 +131,12 @@ const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentT
         <CardHeader>
           <CardTitle className="truncate flex justify-between items-center">
             <span>{note.title || '(Untitled Note)'}</span>
-            {isOwner && note.isSharedByCurrentUser && currentTab === 'myNotes' && (
+            {isOwner && isShared && currentTab === 'myNotes' && (
               <Badge variant="secondary" className="ml-2 text-xs">
                 <Users className="mr-1 h-3 w-3" /> Shared
               </Badge>
             )}
+            {/* The existing note.isSharedByCurrentUser condition was removed as we now directly check the sharedWith array length */}
           </CardTitle>
           {showCreator && typeof note.creator !== 'string' && note.creator?.email && (
             <p className="text-xs text-muted-foreground">By: {note.creator.email}</p>
@@ -145,8 +150,8 @@ const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentT
       </div>
       <CardFooter className="flex justify-between items-center pt-4 border-t mt-auto">
         <div>
-          {isOwner ? <Badge variant="outline">Owner</Badge> : <Badge variant="secondary">Shared</Badge>}
-          {/* The explicit "Shared by You" badge below is removed as it's now part of the CardTitle area for better visibility */}
+          {isOwner ? <Badge variant="outline">Owner</Badge> : <Badge variant="secondary">Collaborator</Badge>}
+          {/* Removed the explicit "Shared by You" badge, covered by the one in CardTitle for owner's view of their shared notes */}
         </div>
         <div className="flex space-x-2">
           <Button variant="outline" size="icon" onClick={handleViewNote} title="View Note">
