@@ -6,13 +6,40 @@ import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { Note, User } from '@/types';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useSocket } from '@/contexts/SocketContext';
 import { Share2, Save, ArrowLeft, Users, Trash2, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import ShareModal from './ShareModal';
 import { AxiosError } from 'axios';
+import 'react-quill/dist/quill.snow.css'; // Import Quill styles
+import dynamic from 'next/dynamic';
+
+// Dynamically import ReactQuill to avoid SSR issues
+const ReactQuill = dynamic(() => import('react-quill'), { ssr: false });
+
+// Define Quill modules and formats configuration outside the component
+const quillModules = {
+  toolbar: [
+    [{ 'header': '1'}, {'header': '2'}, { 'font': [] }],
+    [{size: []}],
+    ['bold', 'italic', 'underline', 'strike', 'blockquote'],
+    [{'list': 'ordered'}, {'list': 'bullet'}, 
+     {'indent': '-1'}, {'indent': '+1'}],
+    ['link', 'image', 'video'],
+    ['clean']
+  ],
+  clipboard: {
+    matchVisual: false,
+  }
+};
+
+const quillFormats = [
+  'header', 'font', 'size',
+  'bold', 'italic', 'underline', 'strike', 'blockquote',
+  'list', 'bullet', 'indent',
+  'link', 'image', 'video'
+];
 
 interface NoteEditorProps {
   noteId: string;
@@ -59,22 +86,19 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     return typeof note.creator === 'string' ? note.creator === user._id : note.creator._id === user._id;
   }, [note, user, isNewNote]);
 
-  // Fetch note data - SINGLE INSTANCE
+  // Fetch note data
   useEffect(() => {
     if (isNewNote) {
       setIsLoading(false);
       setTitle('Untitled Note');
-      setContent('');
+      setContent(''); 
       return;
     }
 
     const fetchNote = async () => {
-      console.log(`[NoteEditor] Fetching note with ID: ${noteId}`);
       setIsLoading(true);
       try {
         const response = await api.get(`/notes/${noteId}`);
-        console.log('[NoteEditor] Successfully fetched note. Response status:', response.status);
-        // console.log('[NoteEditor] Fetched note data:', JSON.stringify(response.data, null, 2)); // Verbose
         setNote(response.data);
         setTitle(response.data.title);
         setContent(response.data.content);
@@ -106,18 +130,17 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     if (noteId) {
         fetchNote();
     }
-  }, [noteId, router, toast, isNewNote]);
+  }, [noteId, router, toast, isNewNote, setIsLoading, setTitle, setContent, setNote, setLastSaved, setSyncStatus]); // Added all state setters used inside
 
-  // Socket.IO listeners for real-time updates - SINGLE INSTANCE
+  // Socket.IO listeners
   useEffect(() => {
-    if (!socket || !note?._id) return; // Guard against null socket or note._id
+    if (!socket || !note?._id) return;
 
-    const currentNoteId = note._id; // Capture note._id to use in cleanup
-
+    const currentNoteId = note._id;
     socket.emit('joinRoom', currentNoteId);
 
     const handleNoteUpdated = (updatedNote: Note) => {
-      if (updatedNote._id === currentNoteId) { // Use captured currentNoteId
+      if (updatedNote._id === currentNoteId) {
         setNote(updatedNote);
         setTitle(updatedNote.title);
         setContent(updatedNote.content);
@@ -130,16 +153,18 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     socket.on('noteUpdated', handleNoteUpdated);
 
     return () => {
-      if (socket && currentNoteId) { // Guard in cleanup
+      if (socket && currentNoteId) {
         socket.emit('leaveRoom', currentNoteId);
         socket.off('noteUpdated', handleNoteUpdated);
       }
     };
-  }, [socket, note, toast]); // note dependency is fine here as we capture _id
+  }, [socket, note, toast, setNote, setTitle, setContent, setLastSaved, setSyncStatus]); // Added all state setters used inside
 
-  // handleSave - SINGLE INSTANCE
+  // handleSave
   const handleSave = useCallback(async (currentTitle: string, currentContent: string) => {
-    if (!user) return;
+    if (!user || isSaving) { // Prevent concurrent saves or saves when no user
+      return;
+    }
 
     if (isReadOnlyView) {
       toast({
@@ -153,70 +178,99 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     setSyncStatus('syncing');
 
     const payload = { title: currentTitle, content: currentContent };
+    let savedNoteData: Note | null = null;
 
     try {
       let response;
-      if (isNewNote && !note?._id) {
+      if (isNewNote && !note?._id) { // Creating a new note
         response = await api.post('/notes', payload);
-        const newNoteData = response.data as Note; // Assert type
-        setNote(newNoteData);
-        router.replace(`/notes/${newNoteData._id}`, { scroll: false });
+        savedNoteData = response.data as Note;
+        setNote(savedNoteData); // Set the full note object for the new note
+        router.replace(`/notes/${savedNoteData._id}`); // Navigate to the new note's URL
         toast({ title: 'Note Created', description: 'Your note has been saved.' });
-        if (socket && newNoteData._id) { // Guard socket and use newNoteData._id
-          socket.emit('noteChange', { roomId: newNoteData._id, note: newNoteData });
-        }
-      } else if (note?._id) { // Ensure note and note._id exist for update
-        response = await api.put(`/notes/${note._id}`, payload); // Use note._id
-        const updatedNoteData = response.data as Note; // Assert type
+      } else if (note?._id) { // Updating an existing note
+        response = await api.put(`/notes/${note._id}`, payload);
+        savedNoteData = response.data as Note;
+        setNote(savedNoteData); // Update the note state with the full response
         toast({ title: 'Note Saved', description: 'Your changes have been saved.' });
-        setLastSaved(new Date(updatedNoteData.updatedAt));
-        setSyncStatus('synced');
-        if (socket && updatedNoteData._id) { // Guard socket and use updatedNoteData._id
-          socket.emit('noteChange', { roomId: updatedNoteData._id, note: updatedNoteData });
-        }
       } else {
-        // Should not happen if logic is correct, but good to handle
-        console.error("handleSave called without a note ID for an existing note.");
-        toast({title: "Save Error", description: "Cannot save note without an ID.", variant: "destructive"});
+        // This case should ideally not be reached if logic is correct
+        console.error("handleSave called without a note ID for an existing note or for a new note properly.");
+        toast({title: "Save Error", description: "Cannot determine save operation.", variant: "destructive"});
         setSyncStatus('error');
-        setIsSaving(false);
-        return;
-      }
-      // This part was slightly off, ensure we use the correct data from response for new notes
-      if (response && response.data) {
-        const savedNote = response.data as Note;
-        setLastSaved(new Date(savedNote.updatedAt));
-        setSyncStatus('synced');
-        // For new notes, note state is already set above, socket emit also done.
-        // For existing notes, this is redundant if done inside the else if block.
-      } else if (!response && isNewNote) {
-        // If post failed and it was a new note, it's an error handled by catch
+        // setIsSaving(false); // Moved to finally block
+        return; // Return early as setIsSaving(false) in finally will cover this path.
       }
 
+      // Common actions for both new and updated notes if save was successful
+      if (savedNoteData) {
+        setLastSaved(new Date(savedNoteData.updatedAt));
+        setSyncStatus('synced');
+        if (socket && savedNoteData._id) {
+          // Emit change to other clients/tabs
+          socket.emit('noteChange', { roomId: savedNoteData._id, note: savedNoteData });
+        }
+      }
     } catch (saveError) {
       console.error('Failed to save note:', saveError);
       setSyncStatus('error');
+      const axiosError = saveError as AxiosError<{ message?: string }>; // More specific type
       toast({
         title: 'Error saving note',
-        description: 'Could not save your changes.',
+        description: axiosError?.response?.data?.message || 'Could not save your changes.',
         variant: 'destructive',
       });
+    } finally { // Ensure isSaving is reset
+        setIsSaving(false);
     }
-    setIsSaving(false);
-  }, [isNewNote, note, user, toast, router, socket, isReadOnlyView]); // noteId removed, note is used directly
+  }, [
+    user,
+    isSaving, 
+    isReadOnlyView,
+    toast,
+    setIsSaving,
+    setSyncStatus,
+    isNewNote,
+    note?._id, 
+    router,
+    setNote,
+    socket,
+    setLastSaved,
+  ]);
 
-  // Debounced save for title and content changes - SINGLE INSTANCE
+  // Debounced save
   useEffect(() => {
-    if (isLoading || isReadOnlyView) return;
-    if (isNewNote && !title && !content && !note?._id) return; // Don't autosave an empty new note that hasn't been saved once
+    // Exit early if loading, read-only, or already saving
+    if (isLoading || isReadOnlyView || isSaving) {
+      return;
+    }
 
+    // Clear any existing debounce timer
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
+
     debounceTimeoutRef.current = setTimeout(() => {
-      // Ensure note exists for existing notes, or title/content for new notes before saving
-      if ((note?._id && !isNewNote) || (isNewNote && (title || content))) { 
-         handleSave(title, content);
+      // Re-check these conditions inside setTimeout as state might have changed
+      if (isLoading || isReadOnlyView || isSaving) {
+        return;
+      }
+
+      const originalTitleFromServer = note?.title ?? '';
+      const originalContentFromServer = note?.content ?? '';
+
+      const titleEffectivelyChanged = title !== originalTitleFromServer;
+      const contentEffectivelyChanged = content !== originalContentFromServer;
+
+      if (isNewNote && !note?._id) { // For a new, unsaved note
+        // Only save if there's some actual text, different from initial placeholders
+        if (title.trim() !== '' && title.trim() !== 'Untitled Note' || content.trim() !== '') {
+          handleSave(title, content);
+        }
+      } else if (note?._id) { // For an existing, loaded note
+        if (titleEffectivelyChanged || contentEffectivelyChanged) {
+          handleSave(title, content);
+        }
       }
     }, 1500);
 
@@ -225,21 +279,21 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
         clearTimeout(debounceTimeoutRef.current);
       }
     };
-  }, [title, content, handleSave, isLoading, isNewNote, isReadOnlyView, note?._id]);
+  }, [title, content, note, handleSave, isLoading, isNewNote, isReadOnlyView, isSaving]); // Added `note` as a dependency for comparison
 
-  // handleManualSave - SINGLE INSTANCE
+  // handleManualSave
   const handleManualSave = () => {
     handleSave(title, content);
   };
 
-  // handleDelete - SINGLE INSTANCE
+  // handleDelete
   const handleDelete = async () => {
-    if (!note || !note._id || isNewNote) return; // Ensure note and note._id exist and it's not a new note form
+    if (!note || !note._id || isNewNote) return;
     if (window.confirm('Are you sure you want to delete this note?')) {
       try {
         await api.delete(`/notes/${note._id}`);
         toast({ title: 'Note Deleted', description: 'The note has been successfully deleted.'});
-        if (socket && note._id) { // Guard socket and note._id
+        if (socket && note._id) {
             socket.emit('noteDeleted', { roomId: note._id, noteId: note._id });
         }
         router.push('/dashboard');
@@ -255,10 +309,10 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
   }
 
   const handleNoteShared = () => {
-    if (note?._id) { // Guard note._id
+    if (note?._id) {
       const fetchNoteAfterShare = async () => { 
         try {
-          const response = await api.get(`/notes/${note._id}`); // Use note._id
+          const response = await api.get(`/notes/${note._id}`);
           setNote(response.data);
         } catch (error) {
           console.error('Failed to re-fetch note after sharing:', error);
@@ -278,7 +332,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
       <ShareModal 
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
-        note={note} // note can be null initially, ShareModal should handle this
+        note={note}
         onNoteShared={handleNoteShared} 
       />
       <div className="flex justify-between items-center mb-6">
@@ -310,12 +364,15 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
           className="text-2xl font-bold border-0 shadow-none focus-visible:ring-0 p-0 mb-2"
           disabled={isReadOnlyView || isSaving}
         />
-        <Textarea
-          placeholder="Start writing your note..."
+        <ReactQuill
+          theme="snow"
           value={content}
-          onChange={(e) => setContent(e.target.value)}
+          onChange={setContent}
+          readOnly={isReadOnlyView || isSaving}
           className="min-h-[calc(100vh-250px)] resize-none border-0 shadow-none focus-visible:ring-0 p-0"
-          disabled={isReadOnlyView || isSaving}
+          modules={quillModules}
+          formats={quillFormats}
+          placeholder="Start writing your note..."
         />
       </div>
       <div className="text-xs text-muted-foreground flex justify-between items-center">

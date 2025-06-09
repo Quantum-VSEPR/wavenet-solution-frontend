@@ -19,6 +19,16 @@ interface NoteItemProps {
   onNoteUpdate: () => Promise<void> | void; // Allow onNoteUpdate to be async or sync
 }
 
+// Helper function to strip HTML tags
+const stripHtml = (html: string) => {
+  if (typeof document !== 'undefined') {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return doc.body.textContent || "";
+  }
+  // Fallback for server-side rendering or environments without DOMParser
+  return html.replace(/<[^>]+>/g, '');
+};
+
 const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentTab, onNoteUpdate }) => {
   const router = useRouter();
   const { user } = useAuth();
@@ -57,7 +67,7 @@ const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentT
       }
       await onNoteUpdate(); // Await if it's a promise
     } catch (error) {
-      const axiosError = error as AxiosError<any>; 
+      const axiosError = error as AxiosError<unknown>; 
       console.error("Failed to archive note (api.put error):", axiosError);
       if (axiosError.response) {
         console.error("API Error Response Data:", axiosError.response.data);
@@ -69,7 +79,7 @@ const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentT
       }
       toast({
         title: "Error Archiving Note",
-        description: axiosError.response?.data?.message || "Could not archive the note. Please check console for details.",
+        description: (axiosError.response?.data as { message?: string })?.message || "Could not archive the note. Please check console for details.",
         variant: "destructive"
       });
     }
@@ -93,7 +103,7 @@ const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentT
       }
       await onNoteUpdate(); // Await if it's a promise
     } catch (error) {
-      const axiosError = error as AxiosError<any>;
+      const axiosError = error as AxiosError<unknown>;
       console.error("Failed to unarchive note (api.put error):", axiosError);
       if (axiosError.response) {
         console.error("API Error Response Data:", axiosError.response.data);
@@ -105,7 +115,7 @@ const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentT
       }
       toast({
         title: "Error Unarchiving Note",
-        description: axiosError.response?.data?.message || "Could not unarchive the note. Please check console for details.",
+        description: (axiosError.response?.data as { message?: string })?.message || "Could not unarchive the note. Please check console for details.",
         variant: "destructive"
       });
     }
@@ -129,7 +139,7 @@ const NoteItem: React.FC<NoteItemProps> = ({ note, showCreator = false, currentT
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground break-words line-clamp-3">
-            {note.content || 'No content'}
+            {stripHtml(note.content) || 'No content'}
           </p>
         </CardContent>
       </div>

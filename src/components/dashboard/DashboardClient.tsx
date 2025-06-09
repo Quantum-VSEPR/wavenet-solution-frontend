@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext'; // Corrected useAuth import path
+import { useSocket } from '@/contexts/SocketContext'; // Added useSocket import
 import api from '@/lib/api';
 import { Note } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,7 @@ const sortOptions: SortOption[] = [
 
 const DashboardClient = () => {
   const { token } = useAuth(); 
+  const { socket } = useSocket(); // Get socket instance
   const router = useRouter();
   const { toast } = useToast();
   
@@ -192,7 +194,7 @@ const DashboardClient = () => {
     // The dependencies array for this useEffect ensures that fetchNotes is called
     // whenever the token changes, or when page/sort parameters change, triggering a re-fetch.
   }, [token, myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy, fetchNotes]);
-
+  
   const handleCreateNewNote = () => {
     setIsCreateModalOpen(true); 
   };
@@ -209,6 +211,27 @@ const DashboardClient = () => {
   const handleNoteUpdate = useCallback(() => {
     fetchNotes(myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy);
   }, [fetchNotes, myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy]);
+
+  // Effect to listen for real-time updates for shared notes
+  useEffect(() => {
+    if (socket) {
+      const realtimeSharedNoteUpdateHandler = (data: { noteId: string; noteTitle: string; sharedByUsername: string; message: string; }) => {
+        console.log('[DashboardClient] Received noteSharedWithYou event:', data);
+        // We have a notification for this already from SocketContext.
+        // Here, we just need to refresh the list of shared notes.
+        // Calling handleNoteUpdate will re-fetch all lists, including shared notes.
+        handleNoteUpdate();
+      };
+
+      socket.on('noteSharedWithYou', realtimeSharedNoteUpdateHandler);
+      console.log('[DashboardClient] Subscribed to noteSharedWithYou');
+
+      return () => {
+        socket.off('noteSharedWithYou', realtimeSharedNoteUpdateHandler);
+        console.log('[DashboardClient] Unsubscribed from noteSharedWithYou');
+      };
+    }
+  }, [socket, handleNoteUpdate]);
 
   const handleMyNotesPageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= myNotesTotalPages) {
