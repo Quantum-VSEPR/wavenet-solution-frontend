@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, ReactNode } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -37,7 +37,7 @@ interface ApiErrorResponse {
   errors?: Array<{ msg: string; param?: string }>;
 }
 
-const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteShared }): ReactNode => {
+const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteShared }) => {
   const { toast } = useToast();
   const [emailQuery, setEmailQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
@@ -58,41 +58,15 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
       return;
     }
     setIsLoadingSearch(true);
-    setSearchResults([]); // Clear previous results
     try {
       const response = await api.get<{ data: User[] }>(`/users/search?email=${emailQuery}`);
       const ownerId = typeof note?.creator === 'string' ? note.creator : note?.creator._id;
-
-      // Ensure resultsFromServer is an array, even if API response.data.data is unexpectedly null/undefined
-      const resultsFromServer = Array.isArray(response.data?.data) ? response.data.data : [];
-
-      const filteredResults = resultsFromServer.filter(
+      const filteredResults = response.data.data.filter(
         (userResult: User) => 
           userResult._id !== ownerId && 
           !sharedUsers.some(su => (typeof su.userId === 'string' ? su.userId : (su.userId as User)._id) === userResult._id)
       );
       setSearchResults(filteredResults);
-
-      // Only show 'no results' toast if a search was performed with a non-empty query.
-      if (emailQuery.trim() && filteredResults.length === 0) {
-        if (resultsFromServer.length === 0) {
-          // This case means the API found no users with that email.
-          toast({
-            title: 'Search Complete',
-            description: `No user found with the email address "${emailQuery}".`,
-            variant: 'default', 
-          });
-        } else {
-          // This case means users were found by API but all were filtered out (e.g., owner or already shared).
-          toast({
-            title: 'Search Complete',
-            description: 'No new users found to share with. They might be the owner or already have access.',
-            variant: 'default',
-          });
-        }
-      }
-      // If filteredResults.length > 0, results are displayed, and no specific toast is shown here.
-      
     } catch (searchError) {
       let message = 'Could not perform user search.';
       if (searchError instanceof AxiosError) {
@@ -104,10 +78,9 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
         description: message,
         variant: 'destructive',
       });
-      setSearchResults([]); // Clear results on error
-    } finally {
-      setIsLoadingSearch(false); // Ensure button state is reset
+      setSearchResults([]);
     }
+    setIsLoadingSearch(false);
   };
 
   const handleShareNote = async () => {
@@ -162,49 +135,14 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
       // Update local state for shared users
       setSharedUsers(prevSharedUsers => prevSharedUsers.filter(su => (typeof su.userId === 'string' ? su.userId : (su.userId as User)._id) !== userIdToUnshare));
     } catch (unshareError) {
-      let title = 'Error Unsharing Note';
-      let description = 'Could not unshare the user from the note. Please try again.'; // Default improved message
-
-      if (unshareError instanceof AxiosError && unshareError.response) {
-        const errorData = unshareError.response.data as ApiErrorResponse | undefined;
-        const status = unshareError.response.status;
-
-        // Use backend message if it's specific and not the generic one we want to avoid
-        if (errorData?.message && errorData.message.toLowerCase() !== "something went very wrong!") {
-          description = errorData.message;
-        } else {
-          // Fallback to status-based messages if backend message is generic or absent
-          switch (status) {
-            case 400:
-              description = "Invalid request. Please check the details and try again.";
-              break;
-            case 401:
-              title = "Authentication Error";
-              description = "You are not authenticated. Please log in and try again.";
-              break;
-            case 403:
-              title = "Permission Denied";
-              description = "You do not have permission to unshare this user from the note.";
-              break;
-            case 404:
-              description = "The note or user to unshare could not be found.";
-              break;
-            case 500:
-              // Keep the generic "Something went very wrong!" for 500 if no other message,
-              // or use a more user-friendly server error message.
-              description = errorData?.message && errorData.message.toLowerCase() !== "something went very wrong!" ? errorData.message : "A server error occurred while trying to unshare the user. Please try again later.";
-              break;
-            // default: description remains the general default set above
-          }
-        }
-      } else if (unshareError instanceof Error) {
-        // For non-Axios errors, try to use the error's message if available
-        description = unshareError.message || description;
+      let message = 'Could not unshare the note.';
+      if (unshareError instanceof AxiosError) {
+        const errorData = unshareError.response?.data as ApiErrorResponse | undefined;
+        if (errorData?.message) message = errorData.message;
       }
-
       toast({
-        title: title,
-        description: description,
+        title: 'Error Unsharing Note',
+        description: message,
         variant: 'destructive',
       });
     }
@@ -270,52 +208,43 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
         <DialogHeader>
           <DialogTitle>Share Note: {note?.title}</DialogTitle>
           <DialogDescription>
-            Manage who can access this note. You can add collaborators or remove existing ones.
+            Manage who can access and edit this note.
           </DialogDescription>
         </DialogHeader>
+        
         <div className="grid gap-4 py-4">
           <div className="flex items-center space-x-2">
             <Input
-              id="email"
-              placeholder="Search user by email..."
+              id="email-search"
+              placeholder="Enter email to share with"
               value={emailQuery}
               onChange={(e) => setEmailQuery(e.target.value)}
-              className="flex-grow"
+              onKeyPress={(e) => e.key === 'Enter' && handleSearchUsers()}
             />
-            <Button onClick={handleSearchUsers} disabled={isLoadingSearch || !emailQuery.trim()}>
+            <Button onClick={handleSearchUsers} disabled={isLoadingSearch} size="sm">
               {isLoadingSearch ? 'Searching...' : 'Search'}
             </Button>
           </div>
 
           {searchResults.length > 0 && (
-            <div className="mt-4">
-              <h4 className="text-sm font-medium mb-2">Search Results:</h4>
-              <ul className="max-h-40 overflow-y-auto rounded-md border">
-                {searchResults.map((user) => (
-                  <li key={user._id} className="p-2 hover:bg-accent flex justify-between items-center">
-                    <span>{user.email}</span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedUser(user);
-                        setEmailQuery(user.email); // Optionally prefill input with selected user's email
-                        setSearchResults([]); // Clear search results after selection
-                      }}
-                    >
-                      Select
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+            <div className="mt-2 space-y-2 max-h-32 overflow-y-auto border rounded-md p-2">
+              {searchResults.map((userResult) => (
+                <div 
+                  key={userResult._id}
+                  className={`p-2 rounded-md cursor-pointer hover:bg-muted ${selectedUser?._id === userResult._id ? 'bg-muted' : ''}`}
+                  onClick={() => setSelectedUser(userResult)}
+                >
+                  {userResult.username} ({userResult.email})
+                </div>
+              ))}
             </div>
           )}
 
           {selectedUser && (
             <div className="mt-4 p-4 border rounded-md bg-muted/50">
-              <p className="text-sm font-medium mb-2">Selected User: {selectedUser.email}</p>
+              <p className="font-semibold mb-2">Share with: {selectedUser.email}</p>
               <div className="flex items-center space-x-2">
-                <Select value={selectedRole} onValueChange={(value) => setSelectedRole(value as 'read' | 'write')}>
+                <Select value={selectedRole} onValueChange={(value: 'read' | 'write') => setSelectedRole(value)}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
@@ -330,59 +259,48 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
               </div>
             </div>
           )}
-
-          <div className="mt-6">
-            <h4 className="text-sm font-medium mb-2">Shared With:</h4>
-            {sharedUsers.length > 0 ? (
-              <ul className="max-h-60 overflow-y-auto space-y-3">
-                {sharedUsers.map((userShare) => {
-                  const user = typeof userShare.userId === 'string' ? null : userShare.userId as User;
-                  const userId = typeof userShare.userId === 'string' ? userShare.userId : userShare.userId._id;
-                  const userEmail = userShare.email || user?.email || 'Unknown Email';
-
-                  return (
-                    <li key={userId} className="p-3 bg-muted/50 rounded-md flex flex-col sm:flex-row justify-between sm:items-center space-y-2 sm:space-y-0">
-                      <div className="flex-grow">
-                        <p className="text-sm font-medium">{userEmail}</p>
-                        <p className="text-xs text-muted-foreground">Role: {userShare.role}</p>
-                      </div>
-                      <div className="flex items-center space-x-2 flex-shrink-0">
-                        <Select 
-                          value={userShare.role} 
-                          onValueChange={(newRole) => handleRoleChange(userId, newRole as 'read' | 'write')}
-                        >
-                          <SelectTrigger className="w-auto sm:w-[100px] h-8 text-xs">
-                            <SelectValue placeholder="Role" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="read" className="text-xs">Can view</SelectItem>
-                            <SelectItem value="write" className="text-xs">Can edit</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleUnshareNote(userId)}
-                          disabled={!userId} // Disable if user ID is not available for unshare
-                          className="text-destructive hover:text-destructive-foreground hover:bg-destructive/90 h-8 w-8"
-                          title="Remove user"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">This note has not been shared with anyone yet.</p>
-            )}
-          </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Close
-          </Button>
+
+        <div className="mt-6">
+          <h4 className="font-semibold mb-2">Currently Shared With:</h4>
+          {sharedUsers.length > 0 ? (
+            <ul className="space-y-2 max-h-48 overflow-y-auto">
+              {sharedUsers.map((share) => {
+                const sharedUserDetails = typeof share.userId === 'string' ? { _id: share.userId, email: share.email } : share.userId;
+                return (
+                  <li key={sharedUserDetails._id} className="flex items-center justify-between p-2 border rounded-md">
+                    <div>
+                      <p className="font-medium">{share.email}</p>
+                      {/* <p className="text-xs text-muted-foreground">Role: {share.role}</p> */}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                        <Select 
+                            value={share.role as 'read' | 'write'} 
+                            onValueChange={(newRole: 'read' | 'write') => handleRoleChange(sharedUserDetails._id, newRole)}
+                        >
+                            <SelectTrigger className="w-[120px] h-8 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="read">Can view</SelectItem>
+                                <SelectItem value="write">Can edit</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Button variant="ghost" size="icon" onClick={() => handleUnshareNote(sharedUserDetails._id)} className="h-8 w-8">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">This note is not shared with anyone yet.</p>
+          )}
+        </div>
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onClose}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

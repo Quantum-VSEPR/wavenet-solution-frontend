@@ -215,43 +215,20 @@ const DashboardClient = () => {
   // Effect to listen for real-time updates for shared notes
   useEffect(() => {
     if (socket) {
-      // Listener for when a note is shared with the current user specifically
-      const realtimeSharedNoteUpdateHandler = (data: { 
-        note: PopulatedNoteType; // Expecting the full note object as per SocketContext
-        sharerUsername: string; 
-      }) => {
+      const realtimeSharedNoteUpdateHandler = (data: { noteId: string; noteTitle: string; sharedByUsername: string; message: string; }) => {
         console.log('[DashboardClient] Received noteSharedWithYou event:', data);
-        // Notification is handled by SocketContext.
-        // Refresh lists to include the newly shared note.
-        // We could be more targeted, e.g., only refresh sharedNotes and potentially myNotes if it was an update to an existing shared note.
-        // For simplicity and to ensure all views are consistent, handleNoteUpdate re-fetches all.
-        handleNoteUpdate();
-      };
-
-      // Listener for general list updates (create, delete, archive, unarchive, share, unshare)
-      const handleGenericListUpdate = (eventData: { 
-        action: string; 
-        note?: PopulatedNoteType; 
-        noteId?: string; 
-      }) => {
-        console.log('[DashboardClient] Received notesListUpdated event:', eventData);
-        // The SocketContext handles notifications for these actions.
-        // Here, we just need to refresh the relevant lists.
-        // Calling handleNoteUpdate will re-fetch all lists.
-        // More granular updates could be implemented here if performance becomes an issue,
-        // e.g., by checking eventData.action and eventData.note/noteId to selectively update state.
+        // We have a notification for this already from SocketContext.
+        // Here, we just need to refresh the list of shared notes.
+        // Calling handleNoteUpdate will re-fetch all lists, including shared notes.
         handleNoteUpdate();
       };
 
       socket.on('noteSharedWithYou', realtimeSharedNoteUpdateHandler);
-      socket.on('notesListUpdated', handleGenericListUpdate); // New listener
-
-      console.log('[DashboardClient] Subscribed to noteSharedWithYou and notesListUpdated');
+      console.log('[DashboardClient] Subscribed to noteSharedWithYou');
 
       return () => {
         socket.off('noteSharedWithYou', realtimeSharedNoteUpdateHandler);
-        socket.off('notesListUpdated', handleGenericListUpdate); // Unsubscribe
-        console.log('[DashboardClient] Unsubscribed from noteSharedWithYou and notesListUpdated');
+        console.log('[DashboardClient] Unsubscribed from noteSharedWithYou');
       };
     }
   }, [socket, handleNoteUpdate]);
