@@ -18,7 +18,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
+  // DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
 import {
@@ -160,24 +160,49 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
 
     const handleNoteUpdated = (updatedNote: Note) => {
       if (updatedNote._id === currentNoteId) {
+        // Check if the update is from the current user to prevent re-applying own changes
+        // This assumes 'updatedBy' field is available in the socket event or can be inferred.
+        // For now, we assume the backend filters out sending 'noteUpdated' to the originator.
         setNote(updatedNote);
         setTitle(updatedNote.title);
         setContent(updatedNote.content);
         setLastSaved(new Date(updatedNote.updatedAt));
         setSyncStatus('synced');
-        toast({ title: 'Note Updated', description: 'Note was updated by another user.' });
+        // Avoid redundant toast if it's a collaborator update, as SocketContext handles that.
+        // toast({ title: 'Note Updated', description: 'Note was updated by another user.' });
       }
     };
 
-    socket.on('noteUpdated', handleNoteUpdated);
+    // Listener for updates made by collaborators to the currently open note
+    const handleCollaboratorNoteUpdated = (data: { note: Note; updatedBy: string }) => {
+      if (data.note._id === currentNoteId && user && data.updatedBy !== user.username) {
+        console.log('[NoteEditor] Received collaboratorNoteUpdated for current note:', data.note);
+        setNote(data.note);
+        setTitle(data.note.title);
+        setContent(data.note.content);
+        setLastSaved(new Date(data.note.updatedAt));
+        setSyncStatus('synced');
+        // Toast notification is handled by SocketContext, but we can add a specific one here if needed
+        // For example, indicating that the content you are viewing has been updated.
+        toast({
+          title: `Note Updated by ${data?.updatedBy}`,
+          description: `"${data?.note?.title}" has been updated. Your view is now current.`,
+          variant: "info",
+        });
+      }
+    };
+
+    socket.on('noteUpdated', handleNoteUpdated); // General update, potentially from self via noteChange
+    socket.on('collaboratorNoteUpdated', handleCollaboratorNoteUpdated); // Specific update from another collaborator
 
     return () => {
       if (socket && currentNoteId) {
         socket.emit('leaveRoom', currentNoteId);
         socket.off('noteUpdated', handleNoteUpdated);
+        socket.off('collaboratorNoteUpdated', handleCollaboratorNoteUpdated);
       }
     };
-  }, [socket, note, toast, setNote, setTitle, setContent, setLastSaved, setSyncStatus]); // Added all state setters used inside
+  }, [socket, note, user, toast, setNote, setTitle, setContent, setLastSaved, setSyncStatus]);
 
   // handleSave
   const handleSave = useCallback(async (currentTitle: string, currentContent: string) => {

@@ -33,6 +33,16 @@ export interface Note {
   isSharedByCurrentUser?: boolean; // New field
 }
 
+export interface PopulatedShare extends Omit<Share, "userId"> {
+  userId: User;
+}
+
+export interface PopulatedNoteType
+  extends Omit<Note, "creator" | "sharedWith"> {
+  creator: User;
+  sharedWith: PopulatedShare[];
+}
+
 export interface DecodedToken {
   userId: string;
   iat: number;
