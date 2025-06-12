@@ -11,13 +11,15 @@ interface MainLayoutProps {
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   return (
     <ProtectedRoute>
-      <div className="flex flex-col min-h-screen">
-        <Navbar />
-        <main className="flex-grow container mx-auto px-4 py-8">
-          {children}
-        </main>
-        {/* You can add a footer here if needed */}
-      </div>
+        <div className="flex flex-col min-h-screen">
+          <header className="sticky top-0 z-50">
+            <Navbar />
+          </header>
+          <main className="flex-grow container mx-auto px-4 py-8">
+            {children}
+          </main>
+          {/* You can add a footer here if needed */}
+        </div>
     </ProtectedRoute>
   );
 };

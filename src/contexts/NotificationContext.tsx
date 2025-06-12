@@ -1,12 +1,12 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Notification } from '@/types';
 
 interface NotificationContextType {
   notifications: Notification[];
-  addNotification: (message: string, type: Notification['type'], noteId?: string) => void;
+  addNotification: (message: string, type: Notification['type'], noteId?: string, isArchived?: boolean, actionable?: boolean, refreshKey?: string) => void;
   removeNotification: (id: string) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
@@ -18,16 +18,24 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const addNotification = useCallback((message: string, type: Notification['type'], noteId?: string) => {
+  const addNotification = useCallback((message: string, type: Notification['type'], noteId?: string, isArchived?: boolean, actionable?: boolean, refreshKey?: string) => {
+    console.log('[NotificationContext] addNotification called. Message:', message, 'Type:', type, 'NoteID:', noteId, 'IsArchived:', isArchived, 'Actionable:', actionable, 'RefreshKey:', refreshKey);
     const newNotification: Notification = {
       id: uuidv4(),
       message,
       type,
       timestamp: new Date(),
       read: false,
-      noteId,
+      actionLink: noteId ? `/notes/${noteId}` : undefined,
+      actionable: noteId ? (actionable !== undefined ? actionable : true) : false, 
+      isArchived, 
+      refreshKey: refreshKey || uuidv4(), // Assign provided refreshKey or generate a new one
     };
-    setNotifications((prevNotifications) => [newNotification, ...prevNotifications]);
+    setNotifications((prevNotifications) => {
+      const updatedNotifications = [newNotification, ...prevNotifications];
+      console.log('[NotificationContext] Notifications state updated. New count:', updatedNotifications.length);
+      return updatedNotifications;
+    });
   }, []);
 
   const removeNotification = useCallback((id: string) => {
@@ -51,6 +59,11 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   }, []);
   
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Log when notifications or unreadCount actually change
+  useEffect(() => {
+    console.log('[NotificationContext] Notifications state changed. Count:', notifications.length, 'Unread:', unreadCount);
+  }, [notifications, unreadCount]);
 
   return (
     <NotificationContext.Provider

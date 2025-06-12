@@ -61,12 +61,21 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
     try {
       const response = await api.get<{ data: User[] }>(`/users/search?email=${emailQuery}`);
       const ownerId = typeof note?.creator === 'string' ? note.creator : note?.creator._id;
-      const filteredResults = response.data.data.filter(
+      const localFilteredResults = response.data.data.filter(
         (userResult: User) => 
           userResult._id !== ownerId && 
           !sharedUsers.some(su => (typeof su.userId === 'string' ? su.userId : (su.userId as User)._id) === userResult._id)
       );
-      setSearchResults(filteredResults);
+      setSearchResults(localFilteredResults);
+
+      // Show "No Users Found" toast if search was successful but yielded no new users
+      if (localFilteredResults.length === 0 && emailQuery.trim()) {
+        toast({
+          title: 'No Users Found',
+          description: `No users found matching "${emailQuery}" that aren't already collaborators or the note owner.`,
+          variant: 'default', 
+        });
+      }
     } catch (searchError) {
       let message = 'Could not perform user search.';
       if (searchError instanceof AxiosError) {
