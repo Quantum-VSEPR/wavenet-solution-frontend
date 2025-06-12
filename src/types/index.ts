@@ -30,7 +30,6 @@ export interface Note {
   sharedWith: Share[];
   createdAt: string;
   updatedAt: string;
-  isArchived: boolean; // Added isArchived field
   isSharedByCurrentUser?: boolean; // New field
 }
 
@@ -69,8 +68,5 @@ export interface Notification {
   type: "info" | "success" | "error" | "warning";
   timestamp: Date;
   read: boolean;
-  actionLink?: string; // Link for an action button like "View Note"
-  actionable?: boolean; // Whether the actionLink should be displayed/is active
-  isArchived?: boolean; // Added for archive notifications
-  refreshKey?: string; // Added to help force component refresh on navigation
+  noteId?: string; // Optional: if the notification is related to a specific note
 }

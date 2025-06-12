@@ -1,16 +1,17 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useSocket } from '@/contexts/SocketContext';
+import React, { useEffect, useState, useCallback } from 'react';
+import { useAuth } from '@/contexts/AuthContext'; // Corrected useAuth import path
+import { useSocket } from '@/contexts/SocketContext'; // Added useSocket import
 import api from '@/lib/api';
-import { Note, User } from '@/types';
+import { Note } from '@/types';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+// Removed Archive, Unarchive icons as they are not used yet
+import { PlusCircle, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react'; 
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import NoteItem from '@/components/notes/NoteItem';
-import CreateNoteModal from '@/components/notes/CreateNoteModal';
+import NoteItem from '@/components/notes/NoteItem'; 
+import CreateNoteModal from '@/components/notes/CreateNoteModal'; 
 import {
   Select,
   SelectContent,
@@ -19,7 +20,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
 
 const NOTES_PER_PAGE = 10;
 
@@ -38,8 +38,8 @@ const sortOptions: SortOption[] = [
 ];
 
 const DashboardClient = () => {
-  const { token, user } = useAuth();
-  const { socket, notesVersion, newSharedItemCounter } = useSocket();
+  const { token } = useAuth(); 
+  const { socket } = useSocket(); // Get socket instance
   const router = useRouter();
   const { toast } = useToast();
   
@@ -47,80 +47,22 @@ const DashboardClient = () => {
   const [myNotesPage, setMyNotesPage] = useState(1);
   const [myNotesTotalPages, setMyNotesTotalPages] = useState(1);
   const [myNotesTotalCount, setMyNotesTotalCount] = useState(0);
-  const [myNotesSortBy, setMyNotesSortBy] = useState<string>(sortOptions[0].value);
+  const [myNotesSortBy, setMyNotesSortBy] = useState<string>(sortOptions[0].value); // Default sort
 
   const [sharedNotes, setSharedNotes] = useState<Note[]>([]);
   const [sharedNotesPage, setSharedNotesPage] = useState(1);
   const [sharedNotesTotalPages, setSharedNotesTotalPages] = useState(1);
   const [sharedNotesTotalCount, setSharedNotesTotalCount] = useState(0);
-  const [sharedNotesSortBy, setSharedNotesSortBy] = useState<string>(sortOptions[0].value);
+  const [sharedNotesSortBy, setSharedNotesSortBy] = useState<string>(sortOptions[0].value); // Default sort
 
   const [archivedNotes, setArchivedNotes] = useState<Note[]>([]);
   const [archivedNotesPage, setArchivedNotesPage] = useState(1);
   const [archivedNotesTotalPages, setArchivedNotesTotalPages] = useState(1);
   const [archivedNotesTotalCount, setArchivedNotesTotalCount] = useState(0);
-  const [archivedNotesSortBy, setArchivedNotesSortBy] = useState<string>(sortOptions[0].value);
+  const [archivedNotesSortBy, setArchivedNotesSortBy] = useState<string>(sortOptions[0].value); // Default sort
   
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // Initialize isLoading to true
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false); 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [activeTab, setActiveTab] = useState("active"); // To track current tab
-
-  const initialFetchDone = useRef(false);
-  const newSharedItemCounterRef = useRef(newSharedItemCounter);
-  const isFetchingRef = useRef(false); // Ref to track if a fetch is in progress
-
-  const handleNoteDeletedClientSide = useCallback((noteId: string, noteType: 'myNotes' | 'archivedNotes') => {
-    if (noteType === 'myNotes') {
-      setMyNotes(prevNotes => prevNotes.filter(note => note._id !== noteId));
-      setMyNotesTotalCount(prevCount => prevCount - 1);
-    } else if (noteType === 'archivedNotes') {
-      setArchivedNotes(prevArchivedNotes => prevArchivedNotes.filter(note => note._id !== noteId));
-      setArchivedNotesTotalCount(prevCount => prevCount - 1);
-    }
-    console.log(`[DashboardClient] Optimistically removed note ${noteId} from ${noteType} list and updated count.`);
-  }, []);
-
-  const handleNoteArchiveStatusChangedClientSide = useCallback((changedNote: Note, isArchived: boolean) => {
-    const noteId = changedNote._id;
-    console.log(`[DashboardClient] Optimistic archive/unarchive. Note ID: ${noteId}, Target archived state: ${isArchived}`);
-    console.log(`[DashboardClient] Counts BEFORE: My: ${myNotesTotalCount}, Archived: ${archivedNotesTotalCount}`);
-
-    if (isArchived) { // Moving from My Notes to Archived Notes
-      setMyNotes(prevNotes => prevNotes.filter(n => n._id !== noteId));
-      setArchivedNotes(prevArchivedNotes => 
-        [{ ...changedNote, isArchived: true, updatedAt: new Date().toISOString() }, ...prevArchivedNotes.filter(n => n._id !== noteId)]
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      );
-      setMyNotesTotalCount(prevCount => {
-        console.log(`[DashboardClient] Decrementing myNotesTotalCount. Prev: ${prevCount}, New: ${prevCount - 1}`);
-        return prevCount - 1;
-      });
-      setArchivedNotesTotalCount(prevCount => {
-        console.log(`[DashboardClient] Incrementing archivedNotesTotalCount. Prev: ${prevCount}, New: ${prevCount + 1}`);
-        return prevCount + 1;
-      });
-      console.log(`[DashboardClient] Optimistically moved note ${noteId} to Archived Notes.`);
-    } else { // Moving from Archived Notes to My Notes
-      setArchivedNotes(prevArchivedNotes => prevArchivedNotes.filter(n => n._id !== noteId));
-      setMyNotes(prevNotes => 
-        [{ ...changedNote, isArchived: false, updatedAt: new Date().toISOString() }, ...prevNotes.filter(n => n._id !== noteId)]
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      );
-      setArchivedNotesTotalCount(prevCount => {
-        console.log(`[DashboardClient] Decrementing archivedNotesTotalCount. Prev: ${prevCount}, New: ${prevCount - 1}`);
-        return prevCount - 1;
-      });
-      setMyNotesTotalCount(prevCount => {
-        console.log(`[DashboardClient] Incrementing myNotesTotalCount. Prev: ${prevCount}, New: ${prevCount + 1}`);
-        return prevCount + 1;
-      });
-      console.log(`[DashboardClient] Optimistically moved note ${noteId} to My Notes.`);
-    }
-    // Note: Logging myNotesTotalCount & archivedNotesTotalCount here won't show updated values due to async nature of setState.
-    // The functional updates with console.log inside them are more reliable for seeing prev/new.
-  }, [myNotesTotalCount, archivedNotesTotalCount]); // Added counts to dependency array for logging "BEFORE" state accurately.
-
 
   const fetchNotes = useCallback(async ( 
     myPageToFetch: number,
@@ -128,37 +70,31 @@ const DashboardClient = () => {
     archivedPageToFetch: number,
     mySortToUse: string,
     sharedSortToUse: string,
-    archivedSortToUse: string,
-    options: { isInitialLoad?: boolean, triggeredBy?: string } = {}
+    archivedSortToUse: string 
   ) => {
-    const { isInitialLoad = false, triggeredBy = 'unknown' } = options;
-
     if (!token) {
       setIsLoading(false); 
-      setMyNotes([]); setMyNotesPage(1); setMyNotesTotalPages(1); setMyNotesTotalCount(0);
-      setSharedNotes([]); setSharedNotesPage(1); setSharedNotesTotalPages(1); setSharedNotesTotalCount(0);
-      setArchivedNotes([]); setArchivedNotesPage(1); setArchivedNotesTotalPages(1); setArchivedNotesTotalCount(0);
-      initialFetchDone.current = false; // Reset on logout
+      setMyNotes([]);
+      setMyNotesPage(1);
+      setMyNotesTotalPages(1);
+      setMyNotesTotalCount(0);
+      setSharedNotes([]);
+      setSharedNotesPage(1);
+      setSharedNotesTotalPages(1);
+      setSharedNotesTotalCount(0);
+      setArchivedNotes([]);
+      setArchivedNotesPage(1);
+      setArchivedNotesTotalPages(1);
+      setArchivedNotesTotalCount(0);
       return; 
     }
-
-    // Prevent concurrent fetches
-    if (isFetchingRef.current && !isInitialLoad) {
-      console.log(`[DashboardClient] Fetch already in progress. Triggered by: ${triggeredBy}. Aborting new fetch.`);
-      return;
-    }
-
-    isFetchingRef.current = true;
-    if (isInitialLoad || !initialFetchDone.current) { // Show loading spinner for initial load or if not yet done
-        setIsLoading(true);
-    }
-    
-    console.log(`[DashboardClient] Fetching notes. Trigger: ${triggeredBy}, Initial: ${isInitialLoad}, MyPage: ${myPageToFetch}, SharedPage: ${sharedPageToFetch}, ArchivedPage: ${archivedPageToFetch}`);
+    setIsLoading(true); 
 
     const [mySortField, mySortOrder] = mySortToUse.split('_');
     const [sharedSortField, sharedSortOrder] = sharedSortToUse.split('_');
     const [archivedSortField, archivedSortOrder] = archivedSortToUse.split('_');
 
+    // Use Promise.allSettled or map promises to handle individual errors
     const results = await Promise.all([
       api.get(`/notes/mynotes?page=${myPageToFetch}&limit=${NOTES_PER_PAGE}&sortBy=${mySortField}&sortOrder=${mySortOrder}`)
         .then(res => ({ status: 'fulfilled' as const, value: res, type: 'myNotes' }))
@@ -171,30 +107,47 @@ const DashboardClient = () => {
         .catch(err => ({ status: 'rejected' as const, reason: err, type: 'archivedNotes' })),
     ]);
 
+    // The setIsLoading(false) was moved up to ensure it's called once after Promise.all
     const myNotesResult = results.find(r => r.type === 'myNotes');
     if (myNotesResult && myNotesResult.status === 'fulfilled') {
       const { data } = myNotesResult.value;
+      console.log('My Notes API Response Data:', data); // Added console.log
       setMyNotes(data.notes);
       setMyNotesTotalPages(data.totalPages);
       setMyNotesPage(data.currentPage);
       setMyNotesTotalCount(data.totalNotes);
     } else if (myNotesResult && myNotesResult.status === 'rejected') {
       console.error('Failed to fetch my notes:', myNotesResult.reason);
-      setMyNotes([]); setMyNotesTotalPages(1); setMyNotesPage(1); setMyNotesTotalCount(0);
-      toast({ title: 'Error fetching My Notes', description: myNotesResult.reason?.response?.data?.message || 'Could not load your notes.', variant: 'destructive'});
+      setMyNotes([]);
+      setMyNotesTotalPages(1);
+      setMyNotesPage(1);
+      setMyNotesTotalCount(0);
+      toast({
+        title: 'Error fetching My Notes',
+        description: myNotesResult.reason?.response?.data?.message || 'Could not load your notes.',
+        variant: 'destructive',
+      });
     }
 
     const sharedNotesResult = results.find(r => r.type === 'sharedNotes');
     if (sharedNotesResult && sharedNotesResult.status === 'fulfilled') {
       const { data } = sharedNotesResult.value;
+      console.log('Shared Notes API Response Data:', data); // Added console.log
       setSharedNotes(data.notes);
       setSharedNotesTotalPages(data.totalPages);
       setSharedNotesPage(data.currentPage);
       setSharedNotesTotalCount(data.totalNotes);
     } else if (sharedNotesResult && sharedNotesResult.status === 'rejected') {
       console.error('Failed to fetch shared notes:', sharedNotesResult.reason);
-      setSharedNotes([]); setSharedNotesTotalPages(1); setSharedNotesPage(1); setSharedNotesTotalCount(0);
-      toast({ title: 'Error fetching Shared Notes', description: sharedNotesResult.reason?.response?.data?.message || 'Could not load notes shared with you.', variant: 'destructive'});
+      setSharedNotes([]);
+      setSharedNotesTotalPages(1);
+      setSharedNotesPage(1);
+      setSharedNotesTotalCount(0);
+      toast({
+        title: 'Error fetching Shared Notes',
+        description: sharedNotesResult.reason?.response?.data?.message || 'Could not load notes shared with you.',
+        variant: 'destructive',
+      });
     }
 
     const archivedNotesResult = results.find(r => r.type === 'archivedNotes');
@@ -206,142 +159,115 @@ const DashboardClient = () => {
       setArchivedNotesTotalCount(data.totalNotes);
     } else if (archivedNotesResult && archivedNotesResult.status === 'rejected') {
       console.error('Failed to fetch archived notes:', archivedNotesResult.reason);
-      setArchivedNotes([]); setArchivedNotesTotalPages(1); setArchivedNotesPage(1); setArchivedNotesTotalCount(0);
-      // Only show toast if the archived tab is active or it's an initial load
-      if (activeTab === "archived" || isInitialLoad) {
-        toast({ title: 'Error fetching Archived Notes', description: archivedNotesResult.reason?.response?.data?.message || 'Could not load archived notes.', variant: 'destructive'});
-      }
+      setArchivedNotes([]);
+      setArchivedNotesTotalPages(1);
+      setArchivedNotesPage(1);
+      setArchivedNotesTotalCount(0);
+      toast({
+        title: 'Error fetching Archived Notes',
+        description: archivedNotesResult.reason?.response?.data?.message || 'Could not load archived notes.',
+        variant: 'destructive',
+      });
     }
-    
     setIsLoading(false); 
-    isFetchingRef.current = false;
-    if (isInitialLoad) initialFetchDone.current = true;
-  }, [token, toast, activeTab]); // Added activeTab
+  }, [token, toast]); // Simplified dependencies for fetchNotes
 
-  // Effect for initial load and general updates (pagination, sorting, notesVersion)
   useEffect(() => {
-    if (token && !isFetchingRef.current) { // Ensure token exists and no fetch is currently in progress
-      if (!initialFetchDone.current) { // Initial load
-        console.log("[DashboardClient] Initial fetch triggered by token/mount.");
-        fetchNotes(myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy, { isInitialLoad: true, triggeredBy: 'initialLoad' });
-      } else { // Subsequent updates (pagination, sorting, notesVersion)
-        console.log("[DashboardClient] General update fetch triggered. notesVersion:", notesVersion);
-        fetchNotes(myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy, { triggeredBy: 'generalUpdate' });
-      }
-    } else if (!token) {
+    if (token) {
+      // When any of these dependencies change, fetchNotes will be called.
+      fetchNotes(myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy);
+    } else {
       setIsLoading(false);
-      setMyNotes([]); setMyNotesPage(1); setMyNotesTotalPages(1); setMyNotesTotalCount(0);
-      setSharedNotes([]); setSharedNotesPage(1); setSharedNotesTotalPages(1); setSharedNotesTotalCount(0);
-      setArchivedNotes([]); setArchivedNotesPage(1); setArchivedNotesTotalPages(1); setArchivedNotesTotalCount(0);
-      initialFetchDone.current = false;
-      isFetchingRef.current = false;
+      setMyNotes([]);
+      setMyNotesPage(1);
+      setMyNotesTotalPages(1);
+      setMyNotesTotalCount(0);
+      setSharedNotes([]);
+      setSharedNotesPage(1);
+      setSharedNotesTotalPages(1);
+      setSharedNotesTotalCount(0);
+      setArchivedNotes([]);
+      setArchivedNotesPage(1);
+      setArchivedNotesTotalPages(1);
+      setArchivedNotesTotalCount(0);
     }
-  }, [token, myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy, notesVersion, fetchNotes]);
-
-
-  // Effect specifically for new shared notes, triggered by newSharedItemCounter
-  useEffect(() => {
-    if (token && initialFetchDone.current && newSharedItemCounter > newSharedItemCounterRef.current && !isFetchingRef.current) {
-      console.log("[DashboardClient] New shared item counter changed. Old:", newSharedItemCounterRef.current, "New:", newSharedItemCounter, ". Fetching page 1 of shared notes.");
-      // Fetch page 1 of shared notes, keep other tabs on their current page/sort
-      fetchNotes(myNotesPage, 1, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy, { triggeredBy: 'newSharedItem' });
-      setSharedNotesPage(1); 
-    }
-    newSharedItemCounterRef.current = newSharedItemCounter;
-  }, [newSharedItemCounter, token, fetchNotes, myNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy]); 
+    // The dependencies array for this useEffect ensures that fetchNotes is called
+    // whenever the token changes, or when page/sort parameters change, triggering a re-fetch.
+  }, [token, myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy, fetchNotes]);
   
   const handleCreateNewNote = () => {
     setIsCreateModalOpen(true); 
   };
 
   const handleNoteCreated = (newNote: Note) => {
+    // After creating a note, it should appear in "My Notes". 
+    // Reset "My Notes" to page 1. The useEffect will handle fetching.
     setMyNotesPage(1); 
     router.push(`/notes/${newNote._id}`);
-    // notesVersion will be incremented by SocketContext, triggering the general useEffect
   };
 
+  // This function is passed to NoteItem. When called, it will trigger fetchNotes
+  // with the current state values for pagination and sorting.
   const handleNoteUpdate = useCallback(() => {
-    // notesVersion change in SocketContext will trigger the general useEffect
-    console.log("[DashboardClient] handleNoteUpdate called. Refresh will be triggered by notesVersion change.");
-  }, []); 
+    fetchNotes(myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy);
+  }, [fetchNotes, myNotesPage, sharedNotesPage, archivedNotesPage, myNotesSortBy, sharedNotesSortBy, archivedNotesSortBy]);
 
-  // Effect to listen for socket events (for logging or specific UI cues if needed)
+  // Effect to listen for real-time updates for shared notes
   useEffect(() => {
-    if (socket && user) {
-      const logNewSharedNote = (note: any) => console.log('[DashboardClient] Socket event: newSharedNote received (for logging)', note);
-      const logNoteSharingUpdated = (updatedNote: any) => console.log('[DashboardClient] Socket event: noteSharingUpdated received (for logging)', updatedNote);
-      const logNoteUnshared = (data: any) => console.log('[DashboardClient] Socket event: noteUnshared received (for logging)', data);
+    if (socket) {
+      const realtimeSharedNoteUpdateHandler = (data: { noteId: string; noteTitle: string; sharedByUsername: string; message: string; }) => {
+        console.log('[DashboardClient] Received noteSharedWithYou event:', data);
+        // We have a notification for this already from SocketContext.
+        // Here, we just need to refresh the list of shared notes.
+        // Calling handleNoteUpdate will re-fetch all lists, including shared notes.
+        handleNoteUpdate();
+      };
 
-      socket.on('newSharedNote', logNewSharedNote);
-      socket.on('noteSharingUpdated', logNoteSharingUpdated);
-      socket.on('noteUnshared', logNoteUnshared);
-      console.log('[DashboardClient] Subscribed to socket events for logging. Data refresh via notesVersion/newSharedItemCounter.');
+      socket.on('noteSharedWithYou', realtimeSharedNoteUpdateHandler);
+      console.log('[DashboardClient] Subscribed to noteSharedWithYou');
 
       return () => {
-        socket.off('newSharedNote', logNewSharedNote);
-        socket.off('noteSharingUpdated', logNoteSharingUpdated);
-        socket.off('noteUnshared', logNoteUnshared);
-        console.log('[DashboardClient] Unsubscribed from socket events for logging.');
+        socket.off('noteSharedWithYou', realtimeSharedNoteUpdateHandler);
+        console.log('[DashboardClient] Unsubscribed from noteSharedWithYou');
       };
     }
-  }, [socket, user]);
+  }, [socket, handleNoteUpdate]);
 
   const handleMyNotesPageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= myNotesTotalPages) setMyNotesPage(newPage);
+    if (newPage >= 1 && newPage <= myNotesTotalPages) {
+      setMyNotesPage(newPage);
+    }
   };
 
   const handleSharedNotesPageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= sharedNotesTotalPages) setSharedNotesPage(newPage);
+    if (newPage >= 1 && newPage <= sharedNotesTotalPages) {
+      setSharedNotesPage(newPage);
+    }
   };
 
   const handleArchivedNotesPageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= archivedNotesTotalPages) setArchivedNotesPage(newPage);
+    if (newPage >= 1 && newPage <= archivedNotesTotalPages) {
+      setArchivedNotesPage(newPage);
+    }
   };
 
   const handleMyNotesSortChange = (sortValue: string) => {
-    setMyNotesSortBy(sortValue); setMyNotesPage(1);
+    setMyNotesSortBy(sortValue);
+    setMyNotesPage(1); // Reset to page 1 when sort changes
   };
 
   const handleSharedNotesSortChange = (sortValue: string) => {
-    setSharedNotesSortBy(sortValue); setSharedNotesPage(1);
+    setSharedNotesSortBy(sortValue);
+    setSharedNotesPage(1); // Reset to page 1 when sort changes
   };
 
   const handleArchivedNotesSortChange = (sortValue: string) => {
-    setArchivedNotesSortBy(sortValue); setArchivedNotesPage(1);
+    setArchivedNotesSortBy(sortValue);
+    setArchivedNotesPage(1); // Reset to page 1 when sort changes
   };
 
-  const filteredMyNotes = useMemo(() => {
-    if (!myNotes) return [];
-    return myNotes.filter(note => 
-      !note.isArchived && // Ensure not archived
-      user && (typeof note.creator === 'string' ? note.creator === user._id : note.creator?._id === user._id) && // Belongs to user
-      note.title.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [myNotes, searchTerm, user]);
-
-  const filteredSharedNotes = useMemo(() => {
-    if (!sharedNotes) return [];
-    return sharedNotes.filter(note => 
-      !note.isArchived && // Ensure not archived
-      user && 
-      note.sharedWith.some(s => (typeof s.userId === 'string' ? s.userId === user._id : (s.userId as User)?._id === user._id)) && // Shared with user
-      (typeof note.creator === 'string' ? note.creator !== user._id : note.creator?._id !== user._id) && // Not created by user
-      note.title.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [sharedNotes, searchTerm, user]);
-
-  const filteredArchivedNotes = useMemo(() => {
-    if (!archivedNotes) return [];
-    return archivedNotes.filter(note => 
-      note.isArchived && // Ensure archived
-      user && (typeof note.creator === 'string' ? note.creator === user._id : note.creator?._id === user._id) && // Belongs to user
-      note.title.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [archivedNotes, searchTerm, user]);
-
-
-  if (isLoading && !initialFetchDone.current) { // Show loading only on initial full load
-    return <div className="flex justify-center items-center h-screen"><p className="text-lg">Loading your Wavenet dashboard...</p></div>;
+  if (isLoading) {
+    return <p>Loading notes...</p>;
   }
 
   return (
@@ -359,52 +285,68 @@ const DashboardClient = () => {
         onNoteCreated={handleNoteCreated}
       />
 
-      <div className="mb-6 relative">
-        <Input 
-          type="search" 
-          placeholder="Search all notes by title..." 
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full md:w-1/2 lg:w-1/3" 
-        />
-      </div>
-
-      <Tabs defaultValue="active" className="w-full" onValueChange={setActiveTab}>
+      <Tabs defaultValue="active" className="w-full">
         <TabsList className="grid w-full grid-cols-3 mb-6">
-          <TabsTrigger value="active">My Notes ({myNotesTotalCount})</TabsTrigger>
-          <TabsTrigger value="shared">Shared With Me ({sharedNotesTotalCount})</TabsTrigger>
-          <TabsTrigger value="archived">Archived Notes ({archivedNotesTotalCount})</TabsTrigger>
+          <TabsTrigger value="active">My Notes</TabsTrigger>
+          <TabsTrigger value="shared">Shared With Me</TabsTrigger>
+          <TabsTrigger value="archived">Archived Notes</TabsTrigger>
         </TabsList>
 
         <TabsContent value="active">
           <section>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-semibold">My Notes</h2>
+              <h2 className="text-2xl font-semibold">My Notes ({myNotesTotalCount})</h2>
               <Select value={myNotesSortBy} onValueChange={handleMyNotesSortChange}>
-                <SelectTrigger className="w-[220px] text-sm"><ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" /><SelectValue /></SelectTrigger>
-                <SelectContent>{sortOptions.map(option => <SelectItem key={option.value} value={option.value} className="text-sm">{option.label}</SelectItem>)}</SelectContent>
+                <SelectTrigger className="w-[220px] text-sm">
+                  <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value} className="text-sm">
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
-            {isLoading && <p>Loading My Notes...</p>}
-            {!isLoading && filteredMyNotes.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredMyNotes.map((note) => (
+            {myNotes.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {myNotes.map((note) => (
                   <NoteItem 
                     key={note._id} 
                     note={note} 
                     currentTab="myNotes" 
-                    onNoteUpdate={handleNoteUpdate} 
-                    onNoteDeleted={(id) => handleNoteDeletedClientSide(id, 'myNotes')}
-                    onNoteArchiveStatusChanged={handleNoteArchiveStatusChangedClientSide}
+                    onNoteUpdate={handleNoteUpdate} // Pass the stable callback
                   />
                 ))}
               </div>
-            ) : !isLoading && (<p>You haven&apos;t created any notes yet, or no notes match your search.</p>)}
+            ) : (
+              <p>You haven&apos;t created any notes yet.</p>
+            )}
             {myNotesTotalPages > 1 && (
               <div className="flex justify-center items-center mt-6 space-x-2">
-                <Button variant="outline" size="sm" onClick={() => handleMyNotesPageChange(myNotesPage - 1)} disabled={myNotesPage <= 1}><ChevronLeft className="h-4 w-4 mr-1" />Previous</Button>
-                <span className="text-sm text-muted-foreground">Page {myNotesPage} of {myNotesTotalPages}</span>
-                <Button variant="outline" size="sm" onClick={() => handleMyNotesPageChange(myNotesPage + 1)} disabled={myNotesPage >= myNotesTotalPages}>Next<ChevronRight className="h-4 w-4 ml-1" /></Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleMyNotesPageChange(myNotesPage - 1)}
+                  disabled={myNotesPage <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {myNotesPage} of {myNotesTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleMyNotesPageChange(myNotesPage + 1)}
+                  disabled={myNotesPage >= myNotesTotalPages}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
               </div>
             )}
           </section>
@@ -413,25 +355,59 @@ const DashboardClient = () => {
         <TabsContent value="shared">
           <section>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-semibold">Shared With Me</h2>
+              <h2 className="text-2xl font-semibold">Shared With Me ({sharedNotesTotalCount})</h2>
               <Select value={sharedNotesSortBy} onValueChange={handleSharedNotesSortChange}>
-                <SelectTrigger className="w-[220px] text-sm"><ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" /><SelectValue /></SelectTrigger>
-                <SelectContent>{sortOptions.map(option => <SelectItem key={option.value} value={option.value} className="text-sm">{option.label}</SelectItem>)}</SelectContent>
+                <SelectTrigger className="w-[220px] text-sm">
+                  <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value} className="text-sm">
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
-            {isLoading && <p>Loading Shared Notes...</p>}
-            {!isLoading && filteredSharedNotes.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredSharedNotes.map((note) => (
-                  <NoteItem key={note._id} note={note} showCreator={true} currentTab="sharedNotes" onNoteUpdate={handleNoteUpdate} />
+            {sharedNotes.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {sharedNotes.map((note) => (
+                  <NoteItem 
+                    key={note._id} 
+                    note={note} 
+                    showCreator={true} 
+                    currentTab="sharedNotes" 
+                    onNoteUpdate={handleNoteUpdate} // Pass the stable callback
+                  />
                 ))}
               </div>
-            ) : !isLoading && (<p>No notes have been shared with you yet, or no notes match your search.</p>)}
+            ) : (
+              <p>No notes have been shared with you yet.</p>
+            )}
             {sharedNotesTotalPages > 1 && (
               <div className="flex justify-center items-center mt-6 space-x-2">
-                <Button variant="outline" size="sm" onClick={() => handleSharedNotesPageChange(sharedNotesPage - 1)} disabled={sharedNotesPage <= 1}><ChevronLeft className="h-4 w-4 mr-1" />Previous</Button>
-                <span className="text-sm text-muted-foreground">Page {sharedNotesPage} of {sharedNotesTotalPages}</span>
-                <Button variant="outline" size="sm" onClick={() => handleSharedNotesPageChange(sharedNotesPage + 1)} disabled={sharedNotesPage >= sharedNotesTotalPages}>Next<ChevronRight className="h-4 w-4 ml-1" /></Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSharedNotesPageChange(sharedNotesPage - 1)}
+                  disabled={sharedNotesPage <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {sharedNotesPage} of {sharedNotesTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSharedNotesPageChange(sharedNotesPage + 1)}
+                  disabled={sharedNotesPage >= sharedNotesTotalPages}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
               </div>
             )}
           </section>
@@ -440,32 +416,58 @@ const DashboardClient = () => {
         <TabsContent value="archived">
           <section>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-2xl font-semibold">Archived Notes</h2>
+              <h2 className="text-2xl font-semibold">Archived Notes ({archivedNotesTotalCount})</h2>
               <Select value={archivedNotesSortBy} onValueChange={handleArchivedNotesSortChange}>
-                <SelectTrigger className="w-[220px] text-sm"><ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" /><SelectValue /></SelectTrigger>
-                <SelectContent>{sortOptions.map(option => <SelectItem key={option.value} value={option.value} className="text-sm">{option.label}</SelectItem>)}</SelectContent>
+                <SelectTrigger className="w-[220px] text-sm">
+                  <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value} className="text-sm">
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
-            {isLoading && <p>Loading Archived Notes...</p>}
-            {!isLoading && filteredArchivedNotes.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredArchivedNotes.map((note) => (
+            {archivedNotes.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {archivedNotes.map((note) => (
                   <NoteItem 
                     key={note._id} 
                     note={note} 
                     currentTab="archivedNotes" 
-                    onNoteUpdate={handleNoteUpdate} 
-                    onNoteDeleted={(id) => handleNoteDeletedClientSide(id, 'archivedNotes')}
-                    onNoteArchiveStatusChanged={handleNoteArchiveStatusChangedClientSide}
-                  />
+                    onNoteUpdate={handleNoteUpdate} // Pass the stable callback
+                  /> 
                 ))}
               </div>
-            ) : !isLoading && (<p>You have no archived notes, or no notes match your search.</p>)}
+            ) : (
+              <p>You have no archived notes.</p>
+            )}
             {archivedNotesTotalPages > 1 && (
               <div className="flex justify-center items-center mt-6 space-x-2">
-                <Button variant="outline" size="sm" onClick={() => handleArchivedNotesPageChange(archivedNotesPage - 1)} disabled={archivedNotesPage <= 1}><ChevronLeft className="h-4 w-4 mr-1" />Previous</Button>
-                <span className="text-sm text-muted-foreground">Page {archivedNotesPage} of {archivedNotesTotalPages}</span>
-                <Button variant="outline" size="sm" onClick={() => handleArchivedNotesPageChange(archivedNotesPage + 1)} disabled={archivedNotesPage >= archivedNotesTotalPages}>Next<ChevronRight className="h-4 w-4 ml-1" /></Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleArchivedNotesPageChange(archivedNotesPage - 1)}
+                  disabled={archivedNotesPage <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {archivedNotesPage} of {archivedNotesTotalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleArchivedNotesPageChange(archivedNotesPage + 1)}
+                  disabled={archivedNotesPage >= archivedNotesTotalPages}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
               </div>
             )}
           </section>
