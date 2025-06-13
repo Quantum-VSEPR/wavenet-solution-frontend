@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Notification } from '@/types';
 
@@ -19,6 +19,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const addNotification = useCallback((message: string, type: Notification['type'], noteId?: string) => {
+    console.log('[NotificationContext] addNotification called. Message:', message, 'Type:', type, 'NoteID:', noteId);
     const newNotification: Notification = {
       id: uuidv4(),
       message,
@@ -27,7 +28,11 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       read: false,
       noteId,
     };
-    setNotifications((prevNotifications) => [newNotification, ...prevNotifications]);
+    setNotifications((prevNotifications) => {
+      const updatedNotifications = [newNotification, ...prevNotifications];
+      console.log('[NotificationContext] Notifications state updated. New count:', updatedNotifications.length);
+      return updatedNotifications;
+    });
   }, []);
 
   const removeNotification = useCallback((id: string) => {
@@ -51,6 +56,11 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   }, []);
   
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Log when notifications or unreadCount actually change
+  useEffect(() => {
+    console.log('[NotificationContext] Notifications state changed. Count:', notifications.length, 'Unread:', unreadCount);
+  }, [notifications, unreadCount]);
 
   return (
     <NotificationContext.Provider

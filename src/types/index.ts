@@ -30,6 +30,7 @@ export interface Note {
   sharedWith: Share[];
   createdAt: string;
   updatedAt: string;
+  isArchived: boolean; // Added isArchived field
   isSharedByCurrentUser?: boolean; // New field
 }
 

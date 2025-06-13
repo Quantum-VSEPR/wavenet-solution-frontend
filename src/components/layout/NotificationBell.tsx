@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Added useEffect
 import { Bell, CheckCheck } from 'lucide-react';
 import { useNotifications } from '@/contexts/NotificationContext';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,10 @@ import { ScrollArea } from '@/components/ui/scroll-area'; // Added for scrollabl
 const NotificationBell: React.FC = () => {
   const { notifications, unreadCount, markAsRead, markAllAsRead, removeNotification } = useNotifications();
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    console.log('[NotificationBell] unreadCount updated:', unreadCount);
+  }, [unreadCount]);
 
   const handleMarkAsRead = (id: string) => {
     markAsRead(id);
@@ -74,7 +78,9 @@ const NotificationBell: React.FC = () => {
                 <p className="text-xs text-muted-foreground whitespace-normal break-words">
                   {notification.message}
                 </p>
-                {notification.noteId && (
+                {notification.noteId && notification.type !== 'warning' && (
+                  // Only show "View Note" if noteId is present AND type is not 'warning' (or a more specific unshare type if introduced)
+                  // This prevents "View Note" for unshare notifications where noteId might be omitted or type indicates access removal.
                   <Link href={`/notes/${notification.noteId}`} passHref>
                     <Button variant="link" size="sm" className="p-0 h-auto text-xs mt-1" onClick={() => setIsOpen(false)}>
                       View Note
