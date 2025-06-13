@@ -68,6 +68,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
   const { user } = useAuth();
   const socketContext = useSocket(); 
   const socket = socketContext.socketInstance;
+  const { notesVersion } = useSocket(); // Get notesVersion
   const { toast } = useToast();
 
   const [note, setNote] = useState<Note | null>(null);
@@ -189,6 +190,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     }
 
     const fetchNote = async () => {
+      console.log(`[NoteEditor] Fetching note ${noteId} due to noteId or notesVersion change. Current notesVersion: ${notesVersion}`);
       setIsLoading(true);
       setUserMadeChangesInThisSession(false); 
       try {
@@ -226,15 +228,12 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     if (noteId) {
         fetchNote();
     }
-  }, [noteId, router, toast, isNewNote]); // Removed state setters, added setUserMadeChangesInThisSession to ensure effect re-runs if it were a dep (though setters are stable)
+  }, [noteId, router, toast, isNewNote, notesVersion]); // Added notesVersion to dependency array
 
   // Socket.IO listeners
   useEffect(() => {
     // Ensure socket instance exists, is connected, and note details are available
-    if (!socketContext.socketInstance || !socketContext.socketInstance.connected || !note?._id || !user) {
-      if (note?._id && user) { // Only log warning if we expected to join but couldn't
-          console.warn('[NoteEditor] Socket not connected or available when trying to set up listeners or join room. Socket:', socketContext.socketInstance);
-      }
+    if (!socketContext || !socketContext.socketInstance || !note || !socket) { // Added null check for socket
       return;
     }
 
@@ -334,16 +333,17 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     socket.on('noteUnshared', handleNoteUnshared);
 
     return () => {
-      if (socketContext.socketInstance && socketContext.socketInstance.connected && currentNoteId) {
-        console.log(`[NoteEditor] Attempting to leave note room ${currentNoteId} with socket ID: ${socketContext.socketInstance.id}`);
-        socketContext.socketInstance.emit('leaveNoteRoom', currentNoteId);
-        console.log(`[NoteEditor] 'leaveNoteRoom' event emitted for ${currentNoteId}`);
+      if (socketContext.socketInstance && socketContext.socketInstance.connected && note && note._id) {
+        const noteIdToLeave = note._id;
+        console.log(`[NoteEditor] Attempting to leave note room ${noteIdToLeave} with socket ID: ${socketContext.socketInstance.id}`);
+        socketContext.socketInstance.emit('leaveNoteRoom', noteIdToLeave);
+        console.log(`[NoteEditor] 'leaveNoteRoom' event emitted for ${noteIdToLeave}`);
       }
-      socketContext.socketInstance.off('noteUpdated', handleRemoteNoteContentUpdated);
-      socketContext.socketInstance.off('noteSharingUpdated', handleNoteSharingUpdated);
-      socketContext.socketInstance.off('noteUnshared', handleNoteUnshared);
+      socketContext.socketInstance?.off('noteUpdated', handleRemoteNoteContentUpdated);
+      socketContext.socketInstance?.off('noteSharingUpdated', handleNoteSharingUpdated);
+      socketContext.socketInstance?.off('noteUnshared', handleNoteUnshared);
     };
-  }, [socketContext, note?._id, user, toast, title, content, lastSaved, canEdit, setNote, setTitle, setContent, setLastSaved, setSyncStatus]); // Added missing dependencies
+  }, [socketContext, note, user, toast, title, content, lastSaved, canEdit, setNote, setTitle, setContent, setLastSaved, setSyncStatus, socket]); // Removed currentNoteId and event handlers from dependencies
 
   // handleSave
   const handleSave = useCallback(async (currentTitle: string, currentContent: string, showSuccessToast = false, isAuto = false) => {
@@ -992,8 +992,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
       </div>
 
       {/* Editor Section - Takes remaining height */}
-      <div 
-        ref={quillEditorRef} 
+      <div
+        ref={quillEditorRef}
         className="flex-grow flex flex-col prose dark:prose-invert max-w-none rounded-md border border-input bg-transparent overflow-hidden"
       >
         <ReactQuill
@@ -1015,43 +1015,3 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
 };
 
 export default NoteEditor;
-
-<style jsx global>{`
-  /* Ensure the container and editor itself can grow */
-  .prose .ql-container.ql-snow {
-    display: flex; /* Ensure ql-container can be a flex item if parent is flex */
-    flex-direction: column; /* Stack toolbar and editor vertically */
-    /* flex-grow: 1; */ /* Disabled to allow fixed height to take precedence */
-    /* min-height: 0; */ /* Disabled for fixed height */
-    overflow: hidden; /* Let ql-editor handle its own scroll */
-    height: 100%; /* Make container fill the ReactQuillDynamic component's fixed height */
-  }
-  .prose .ql-editor {
-    flex-grow: 1; /* Editor itself should grow to fill the container */
-    overflow-y: auto; /* Allow editor content to scroll */
-    /* height: 100%; */ /* Let flex-grow manage this based on container */
-    padding: 12px 15px; 
-  }
-  
-  /* Original styles for toolbar and container (borders, radius) - can be kept or adjusted */
-  .editor-container .ql-toolbar.ql-snow { /* This class seems unused in the current JSX, consider removing or applying to ReactQuillDynamic's toolbar */
-    border-top-left-radius: 0.375rem; 
-    border-top-right-radius: 0.375rem; 
-    border-bottom: none;
-  }
-  .editor-container .ql-container.ql-snow { /* This class seems unused, ql-container is targeted directly above */
-    border-bottom-left-radius: 0.375rem; 
-    border-bottom-right-radius: 0.375rem; 
-    /* min-height: 400px; */ /* Replaced by flex-grow logic */
-    /* height: 100%; */
-    /* display: flex; */
-    /* flex-direction: column; */
-  }
-
-  .read-only-quill .ql-toolbar {
-    display: none;
-  }
-  .read-only-quill .ql-container {
-    border-top: 1px solid #ccc !important; 
-  }
-`}</style>

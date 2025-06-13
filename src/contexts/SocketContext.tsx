@@ -4,8 +4,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback, Rea
 import { Socket, io as socketIO } from 'socket.io-client';
 import { useAuth } from './AuthContext'; 
 import { useNotifications } from './NotificationContext';
-import { Note, Notification } from '@/types'; // Removed Share, User as they are not directly used in this file after changes
-import { usePathname } from 'next/navigation';
+import { Note, Notification } from '@/types'; // Removed User import
+import { usePathname, useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
 
 const SOCKET_SERVER_URL = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || 'http://localhost:5001';
@@ -37,6 +37,8 @@ interface NoteSharingUpdatedPayload {
   note: Note; 
   updatedByUserId: string; 
   message?: string; 
+  // This interface is used by a socket event listener, even if not explicitly called elsewhere in this file.
+  // It's kept for consistency with backend event payloads.
 }
 
 // Interface for the new noteSharingConfirmation event (for owner)
@@ -79,7 +81,7 @@ interface SocketContextType {
   resetNewSharedItemCounter: () => void;
   emitUserEditing: (noteId: string, isEditing: boolean) => void;
   emitUserStoppedEditing: (noteId: string) => void; 
-  emitUserFinishedEditingWithContent: (noteId: string, title: string, content: any) => void; // Added new emitter
+  emitUserFinishedEditingWithContent: (noteId: string, title: string, content: string | object) => void; // Changed 'any' to 'string | object' for content
 }
 
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
@@ -92,6 +94,7 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [notesVersion, setNotesVersion] = useState(0);
   const [newSharedItemCounter, setNewSharedItemCounter] = useState(0);
   const pathname = usePathname();
+  const router = useRouter(); // Initialize router
   const { toast } = useToast(); 
 
   const incrementNotesVersion = useCallback(() => {
@@ -168,7 +171,6 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (socketInstance && socketInstance.connected && user && user._id) { 
       console.log("[SocketContext] Setting up event listeners for user:", user._id);
       const currentUserId = user._id;
-      const currentUsername = user.username;
 
       const handleNotesListUpdated = (data: NotesListUpdatePayload) => {
         console.log("[SocketContext] Received notesListUpdated:", data);
@@ -200,156 +202,108 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       };
       socketInstance.on("noteSharingConfirmation", handleNoteSharingConfirmation);
 
-      const handleNoteSharingUpdated = (data: NoteSharingUpdatedPayload) => {
-        console.log("[SocketContext] Received noteSharingUpdated (for other collaborators):", data);
-        // This is for other collaborators, not the owner and not the newly shared user.
-        // They should receive an informational update, but not a bell counter increment.
-        if (data.updatedByUserId !== currentUserId) { 
-          if (data.message) {
-            // Informational notification, actionable: false means it won't behave like a new item needing urgent attention.
-            addNotification(data.message, 'info', data.note._id); // Corrected: 3 arguments
-          }
-          incrementNotesVersion(); 
-          // DO NOT incrementNewSharedItemCounter() here for this event.
-          // The bell update is only for the newly added user (via 'newSharedNote') 
-          // or for other specific events that should increment the bell.
-        }
-      };
-      socketInstance.on("noteSharingUpdated", handleNoteSharingUpdated);
-
-      const handleYourShareRoleUpdated = (data: YourShareRoleUpdatedPayload) => {
-        console.log("[SocketContext] Received yourShareRoleUpdated:", data);
-        const message = data.message || `Your role for note '${data.title}' was updated to ${data.yourNewRole} by ${data.updaterUsername || 'a user'}.`;
-        addNotification(message, 'info', data._id);
-        incrementNotesVersion();
-        incrementNewSharedItemCounter(); // Increment bell counter for role updates
-      };
-      socketInstance.on("yourShareRoleUpdated", handleYourShareRoleUpdated);
-
-      const handleNoteUnshared = (data: { noteId: string; title: string; unsharerUsername?: string; message?: string }) => {
-        console.log("[SocketContext] Received noteUnshared:", data);
-        const message = data.message || `You were unshared from the note '${data.title}' by ${data.unsharerUsername || 'the owner'}.`; // Corrected template literal
-        // For 'noteUnshared', we pass undefined for noteId to addNotification
-        // to prevent the "View Note" button from appearing in NotificationBell.
-        addNotification(message, 'warning', undefined); // Pass undefined for noteId
-        
-        // Also, trigger a toast for the unshared user.
-        // This toast should be purely informational and not have actions like "View Note".
-        toast({
-            title: "Access Removed",
-            description: message,
-            variant: "default", // Or 'warning' if preferred
-        });
-
-        incrementNotesVersion(); // To refresh lists, as the user lost access to a note
-        incrementNewSharedItemCounter(); // To make the bell noticeable
-      };
-      socketInstance.on("noteUnshared", handleNoteUnshared);
-
-      // Listener for when the current user successfully updates a note (for toast)
-      const handleNoteUpdateSuccess = (data: NoteUpdateSuccessPayload) => {
-        console.log("[SocketContext] Received noteUpdateSuccess (for updater):", data);
-        // Show toast only if it's not an autosave or if we decide all saves should toast
-        if (!data.isAutoSave) {
-          toast({
-            title: "Note Updated",
-            description: data.message || `Successfully updated '${data.title}'.`,
-            variant: "default", 
-          });
-        }
-        incrementNotesVersion(); // Refresh notes list or other dependent data
-      };
-      socketInstance.on("noteUpdateSuccess", handleNoteUpdateSuccess);
-
-      // Listener for when a note the user is collaborating on is updated by someone else (for bell)
       const handleNotifyNoteUpdatedByOther = (data: NotifyNoteUpdatedByOtherPayload) => {
         console.log("[SocketContext] Received notifyNoteUpdatedByOther:", data);
-        // Ensure not to notify for own actions if backend somehow sends it (though it shouldn't for this event)
-        if (data.editorUsername !== currentUsername) { 
-          addNotification(data.message, data.type || 'info', data.noteId);
-          incrementNotesVersion(); // To refresh list views or note content if navigating
-          // Potentially increment a specific counter for "updates by others" if needed for the bell
-          // For now, relying on the general notification mechanism to update unreadCount
+        if (data.editorUsername !== user.username) {
+          addNotification(data.message, data.type, data.noteId);
+          // No automatic notesVersion increment here, NoteEditor handles its state
         }
       };
       socketInstance.on("notifyNoteUpdatedByOther", handleNotifyNoteUpdatedByOther);
+      
+      const handleNoteUpdateSuccess = (data: NoteUpdateSuccessPayload) => {
+        console.log("[SocketContext] Received noteUpdateSuccess (for updater):", data);
+        if (!data.isAutoSave) { // Only show toast for manual saves
+          toast({ title: "Note Saved", description: data.message, variant: "default" });
+        }
+        // Potentially increment notesVersion if the update could affect list views (e.g. last updated sort)
+        // incrementNotesVersion(); // Consider if this is needed or if editor handles it
+      };
+      socketInstance.on("noteUpdateSuccess", handleNoteUpdateSuccess);
 
-      // REMOVED: socketInstance.off("noteContentUpdated", handleNoteContentUpdated); as it's no longer used for live typing.
-      // REMOVED: socketInstance.off("noteEditFinishedByOtherUser", handleNoteEditFinishedByOtherUser); // Replaced by notifyNoteUpdatedByOther
+      const handleNoteUnsharedToUser = (data: { noteId: string; title: string; message: string; unsharerId?: string }) => {
+        console.log("[SocketContext] Received noteUnsharedToUser (specific to me):", data);
+        addNotification(data.message, 'warning', data.noteId);
+        incrementNotesVersion(); // To refresh lists like "Shared with me"
 
-      // Cleanup listeners
-      return () => {
-        console.log("[SocketContext] Cleaning up event listeners for user:", currentUserId);
-        if (socketInstance) { 
-            socketInstance.off("notesListUpdated", handleNotesListUpdated);
-            socketInstance.off("newSharedNote", handleNewSharedNote);
-            socketInstance.off("noteSharingConfirmation", handleNoteSharingConfirmation);
-            socketInstance.off("noteSharingUpdated", handleNoteSharingUpdated);
-            socketInstance.off("yourShareRoleUpdated", handleYourShareRoleUpdated);
-            socketInstance.off("noteUnshared", handleNoteUnshared);
-            socketInstance.off("noteUpdateSuccess", handleNoteUpdateSuccess); // Cleanup new listener
-            socketInstance.off("notifyNoteUpdatedByOther", handleNotifyNoteUpdatedByOther); // Cleanup new listener
+        if (pathname === `/notes/${data.noteId}`) {
+          toast({
+            title: "Access Removed",
+            description: `Your access to the note "${data.title}" has been revoked. You will be redirected to the dashboard.`,
+            variant: "destructive",
+            duration: 5000,
+          });
+          setTimeout(() => {
+            router.push('/dashboard');
+          }, 4500); 
         }
       };
-    } else {
-      // Log why listeners are not being set up
-      if (!socketInstance) {
-        console.warn("[SocketContext] Listeners not set up: socketInstance is null.");
-      }
-      if (socketInstance && !socketInstance.connected) {
-        console.warn("[SocketContext] Listeners not set up: socket is not connected.");
-      }
-      if (!user) {
-        console.warn("[SocketContext] Listeners not set up: user object is null.");
-      }
-      if (user && !user._id) {
-        console.warn("[SocketContext] Listeners not set up: user._id is missing.");
-      }
+      socketInstance.on("noteUnsharedToUser", handleNoteUnsharedToUser);
+      
+      // Listener for when the current user successfully updates a note (for toast)
+      const handleUserEditingStatus = (data: UserEditingStatusPayload & { isEditing: boolean }) => {
+        if (data.userId !== currentUserId) {
+          // This is where you might update UI to show who is editing
+          console.log(`[SocketContext] User ${data.username} ${data.isEditing ? 'started' : 'stopped'} editing note ${data.noteId}`);
+          // Example: toast({ description: `User ${data.username} ${data.isEditing ? 'started' : 'stopped'} editing this note.`});
+        }
+      };
+      socketInstance.on("userEditingStatus", handleUserEditingStatus);
+
+
+      return () => {
+        console.log("[SocketContext] Cleaning up event listeners for user:", user._id);
+        if (socketInstance) {
+          socketInstance.off("notesListUpdated", handleNotesListUpdated);
+          socketInstance.off("newSharedNote", handleNewSharedNote);
+          socketInstance.off("noteSharingConfirmation", handleNoteSharingConfirmation);
+          socketInstance.off("notifyNoteUpdatedByOther", handleNotifyNoteUpdatedByOther);
+          socketInstance.off("noteUpdateSuccess", handleNoteUpdateSuccess);
+          socketInstance.off("noteUnsharedToUser", handleNoteUnsharedToUser);
+          socketInstance.off("userEditingStatus", handleUserEditingStatus);
+        }
+      };
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socketInstance, user, addNotification, incrementNotesVersion, incrementNewSharedItemCounter, pathname, toast]);
+  }, [socketInstance, user, addNotification, incrementNotesVersion, pathname, router, toast, incrementNewSharedItemCounter]); // Added incrementNewSharedItemCounter
 
   const emitUserEditing = useCallback((noteId: string, isEditing: boolean) => {
     if (socketInstance && user) {
-      if (isEditing) {
-        console.log(`[SocketContext] Emitting userEditing for note ${noteId}`);
-        socketInstance.emit('userEditing', { noteId, userId: user._id, username: user.username });
-      }
+      socketInstance.emit('userEditingNote', { noteId, userId: user._id, username: user.username, isEditing });
     }
   }, [socketInstance, user]);
 
-  const emitUserStoppedEditing = useCallback((noteId: string) => {
+  const emitUserStoppedEditing = useCallback((noteId: string) => { // Kept for explicitness if needed
     if (socketInstance && user) {
-      console.log(`[SocketContext] Emitting userStoppedEditing for note ${noteId}`);
-      socketInstance.emit('userStoppedEditing', { noteId, userId: user._id, username: user.username }); // Added username
+      socketInstance.emit('userStoppedEditingNote', { noteId, userId: user._id, username: user.username });
     }
   }, [socketInstance, user]);
 
-  const emitUserFinishedEditingWithContent = useCallback((noteId: string, title: string, content: any) => {
+  const emitUserFinishedEditingWithContent = useCallback((noteId: string, title: string, content: string | object) => { // Changed 'any' to 'string | object' for content
     if (socketInstance && user) {
-      console.log(`[SocketContext] Emitting userFinishedEditingNoteWithContent for note ${noteId}`);
-      socketInstance.emit('userFinishedEditingNoteWithContent', { 
-        noteId, 
-        title, 
-        content, 
-        editorId: user._id, 
-        editorUsername: user.username 
+      console.log(`[SocketContext] Emitting userFinishedEditingNoteWithContent for note ${noteId} by user ${user.username}`);
+      socketInstance.emit('userFinishedEditingNoteWithContent', {
+        noteId,
+        title,
+        content,
+        editorId: user._id,
+        editorUsername: user.username,
       });
     }
   }, [socketInstance, user]);
 
+
   return (
-    <SocketContext.Provider value={{
-      socketInstance,
-      isConnected,
-      notesVersion,
+    <SocketContext.Provider value={{ 
+      socketInstance, 
+      isConnected, 
+      notesVersion, 
       incrementNotesVersion,
       newSharedItemCounter,
       incrementNewSharedItemCounter,
       resetNewSharedItemCounter,
       emitUserEditing,
       emitUserStoppedEditing,
-      emitUserFinishedEditingWithContent, // Added new emitter to context value
+      emitUserFinishedEditingWithContent
     }}>
       {children}
     </SocketContext.Provider>
@@ -358,7 +312,7 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
 export const useSocket = (): SocketContextType => {
   const context = useContext(SocketContext);
-  if (context === undefined) { // Corrected syntax: ensure comparison is valid
+  if (context === undefined) { // Corrected: Removed extra parenthesis
     throw new Error('useSocket must be used within a SocketProvider');
   }
   return context;
