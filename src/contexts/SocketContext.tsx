@@ -25,30 +25,39 @@ interface NotesListUpdatePayload {
   message?: string; 
 }
 
-// Interface for the newSharedNote event, now with a message
-interface NewSharedNotePayload extends Note { 
-    message?: string;
-    sharerUsername?: string; 
-    roleYouWereGiven?: 'read' | 'write'; // Added from backend payload
+// Updated based on actual backend payload for 'newSharedNote'
+interface ReceivedNewSharedNotePayload {
+  _id: string; // Note ID
+  title: string;
+  content: string; // Or object if it can be complex
+  creator: { _id: string; username: string; email?: string };
+  sharedWith: Array<{ user: string; role: 'read' | 'write'; _id: string; username?: string; email?: string; }>; // Adjusted sharedWith structure
+  isArchived: boolean;
+  updatedAt: string; // ISO Date string
+  roleYouWereGiven: 'read' | 'write';
+  sharerUsername: string;
+  message: string;
+  // This represents the note itself, so we can map it to the Note type if needed
+  // For simplicity, keeping it flat as received.
 }
 
 // Interface for noteSharingUpdated event, now with a message and actor
 interface NoteSharingUpdatedPayload {
   note: Note; 
   updatedByUserId: string; 
+  updatedByUsername?: string; // Optional: if backend can provide it for a richer message
   message?: string; 
-  // This interface is used by a socket event listener, even if not explicitly called elsewhere in this file.
-  // It's kept for consistency with backend event payloads.
 }
 
 // Interface for the new noteSharingConfirmation event (for owner)
 interface NoteSharingConfirmationPayload {
-  note: Note;
+  note?: Note; // Made optional as not always present, e.g. on unshare by ID
   message: string;
   recipientEmail?: string;
   sharedNoteId?: string;
   newRole?: 'read' | 'write';
   actionType?: 'share' | 'update_role' | 'unshare';
+  noteId?: string; // Ensure noteId is available for all action types if note object isn't
 }
 
 // Interface for receiveNoteUpdateNotification event (now notifyNoteUpdatedByOther)
@@ -70,6 +79,28 @@ interface NoteUpdateSuccessPayload {
   message: string;
   isAutoSave: boolean;
 }
+
+// Payload for backend's 'yourShareRoleUpdated' - ADJUSTED
+interface YourShareRoleUpdatedPayload {
+  _id: string; // Note ID, now top-level
+  title: string; // Note title, now top-level
+  // content, creator, sharedWith, isArchived, updatedAt are also top-level if needed,
+  // but for the notification, _id and title are primary.
+  yourNewRole: 'read' | 'write'; // Matches backend field name
+  updaterUsername: string; // Matches backend field name
+  message: string;
+  // Add other fields if present and needed
+}
+
+// Payload for backend's 'noteUnshared'
+interface NoteUnsharedPayload {
+  noteId: string;
+  noteTitle: string;
+  unsharerUsername: string;
+  message: string;
+  // Add other fields if present
+}
+
 
 interface SocketContextType {
   socketInstance: Socket | null;
@@ -104,9 +135,9 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const incrementNewSharedItemCounter = useCallback(() => {
     setNewSharedItemCounter(prev => {
-      const newValue = prev + 1;
-      console.log(`[SocketContext] incrementNewSharedItemCounter called. Old value: ${prev}, New value: ${newValue}`);
-      return newValue;
+      const currentNewValue = prev + 1; // Fixed variable name
+      console.log(`[SocketContext] incrementNewSharedItemCounter called. Old value: ${prev}, New value: ${currentNewValue}`);
+      return currentNewValue; // Return the new value
     });
   }, []);
   
@@ -172,13 +203,13 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   useEffect(() => {
     if (socketInstance && socketInstance.connected && user && user._id) {
 
-      // Listener for when the current user is shared a note or their role is updated (RECIPIENT)
-      socketInstance.on('notifyUserOfShareOrUpdate', (data: { note: Note, sharerUsername: string, roleGiven: string, message: string, actionType: 'share' | 'update_role' }) => {
-        console.log('[SocketContext] Received notifyUserOfShareOrUpdate FOR RECIPIENT:', data);
+      // Listener for when a note is newly shared with the current user
+      socketInstance.on('newSharedNote', (data: ReceivedNewSharedNotePayload) => {
+        console.log('[SocketContext] Received newSharedNote from backend:', data);
         addNotification(
-          data.message || `Note "${data.note.title}" was ${data.actionType === 'share' ? 'shared with you' : 'role updated for'} by ${data.sharerUsername}. Your new role: ${data.roleGiven}.`,
-          data.actionType === 'share' ? 'info' : 'success',
-          data.note._id
+          data.message || `Note "${data.title}" was shared with you by ${data.sharerUsername}. Your role: ${data.roleYouWereGiven}.`,
+          'info',
+          data._id // Use data._id as noteId
         );
         incrementNewSharedItemCounter();
         if (pathname.includes('/dashboard')) {
@@ -186,28 +217,75 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         }
       });
 
-      // Listener for when the current user is unshared from a note (RECIPIENT)
-      socketInstance.on('notifyUserOfUnshare', (data: { noteId: string, noteTitle: string, unsharerUsername: string, message: string }) => {
-        console.log('[SocketContext] Received notifyUserOfUnshare FOR RECIPIENT:', data);
+      // Listener for when the current user's role on a shared note is updated
+      socketInstance.on('yourShareRoleUpdated', (data: YourShareRoleUpdatedPayload) => {
+        console.log('[SocketContext] Received yourShareRoleUpdated from backend:', data);
+         addNotification(
+          data.message || `Your role for note "${data.title}" was updated to ${data.yourNewRole} by ${data.updaterUsername}.`, // Use data.title, data.yourNewRole, data.updaterUsername
+          'success',
+          data._id // Use data._id directly
+        );
+        incrementNewSharedItemCounter();
+        if (pathname.includes('/dashboard')) {
+            incrementNotesVersion(); 
+        }
+      });
+      
+      // Listener for when the current user is unshared from a note
+      socketInstance.on('noteUnshared', (data: NoteUnsharedPayload) => { 
+        console.log('[SocketContext] Received noteUnshared from backend:', data);
         addNotification(
           data.message || `You were unshared from the note "${data.noteTitle}" by ${data.unsharerUsername}.`,
           'warning',
           data.noteId 
         );
+        incrementNewSharedItemCounter(); // Added for bell update
+        if (pathname.includes('/dashboard')) {
+            incrementNotesVersion();
+        }
+        // If currently viewing the unshared note, redirect or show a message
+        if (pathname === `/notes/${data.noteId}`) {
+          toast({
+            title: 'Access Removed',
+            description: `You no longer have access to the note "${data.noteTitle}".`,
+            variant: 'destructive',
+          });
+          router.push('/dashboard');
+        }
+      });
+      
+      // Listener for the OWNER to confirm their share/unshare/update action
+      socketInstance.on('noteSharingConfirmation', (data: NoteSharingConfirmationPayload) => {
+        console.log('[SocketContext] Received noteSharingConfirmation from backend:', data);
+        toast({
+          title: `${data.actionType ? data.actionType.charAt(0).toUpperCase() + data.actionType.slice(1) : 'Action'} Successful`,
+          description: data.message,
+        });
         if (pathname.includes('/dashboard')) {
             incrementNotesVersion();
         }
       });
 
-      // Listener for the OWNER to confirm their share/unshare/update action
-      socketInstance.on('confirmShareAction', (data: { message: string, actionType: 'share' | 'update_role' | 'unshare', noteId: string, recipientEmail?: string, newRole?: string }) => {
-        console.log('[SocketContext] Received confirmShareAction FOR OWNER:', data);
-        toast({
-          title: `${data.actionType.charAt(0).toUpperCase() + data.actionType.slice(1)} Successful`,
-          description: data.message, // Directly use backend message
-        });
-        if (pathname.includes('/dashboard')) {
+      // Listener for when a note's sharing settings are updated by another user
+      // This notifies other collaborators about changes in sharing permissions.
+      // This event ('noteSharingSettingsChanged') might need to be emitted by the backend
+      // when one user's role changes, to inform *other* collaborators (not the one whose role changed,
+      // as they get 'yourShareRoleUpdated').
+      socketInstance.on('noteSharingSettingsChanged', (data: NoteSharingUpdatedPayload) => {
+        console.log('[SocketContext] Received noteSharingSettingsChanged:', data);
+        if (data.updatedByUserId !== user._id) {
+          const notificationMessage = data.message || 
+            `Sharing settings for note "${data.note.title}" were updated${data.updatedByUsername ? ` by ${data.updatedByUsername}` : ''}.`;
+          
+          addNotification(
+            notificationMessage,
+            'info', 
+            data.note._id
+          );
+          incrementNewSharedItemCounter();
+          if (pathname.includes('/dashboard') || pathname === `/notes/${data.note._id}`) {
             incrementNotesVersion();
+          }
         }
       });
       
@@ -218,6 +296,7 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           data.message || `The note "${data.noteTitle}" was deleted by ${data.deletedByUsername}.`,
           'warning'
         );
+        incrementNewSharedItemCounter(); // Added for bell update
         if (pathname.includes('/dashboard') || pathname === `/notes/${data.noteId}`) {
             incrementNotesVersion();
         }
@@ -239,28 +318,29 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           'info',
           data.noteId
         );
+        incrementNewSharedItemCounter(); // Added for bell update
         if (pathname.includes('/dashboard')) {
             incrementNotesVersion();
         }
       });
 
-      // Listener for when a note's content/title is updated by another user (collaborator or owner)
-      socketInstance.on('notifyNoteUpdatedByOther', (data: NotifyNoteUpdatedByOtherPayload) => {
-        console.log('[SocketContext] Received notifyNoteUpdatedByOther:', data);
-        if (user && data.editorUsername !== user.username) { 
-          if (pathname !== `/notes/${data.noteId}`) {
-            addNotification(
-              data.message, // Use backend message
-              data.type || 'info',
-              data.noteId
-            );
-            incrementNewSharedItemCounter(); 
-          }
-           if (pathname.includes('/dashboard')) {
-            incrementNotesVersion();
-          }
-        }
-      });
+      // REMOVING THE FIRST DUPLICATE LISTENER FOR notifyNoteUpdatedByOther
+      // socketInstance.on('notifyNoteUpdatedByOther', (data: NotifyNoteUpdatedByOtherPayload) => {
+      //   console.log('[SocketContext] Received notifyNoteUpdatedByOther (first instance):', data);
+      //   if (user && data.editorUsername !== user.username) { 
+      //     if (pathname !== `/notes/${data.noteId}`) {
+      //       addNotification(
+      //         data.message, // Use backend message
+      //         data.type || 'info',
+      //         data.noteId
+      //       );
+      //       incrementNewSharedItemCounter(); 
+      //     }
+      //      if (pathname.includes('/dashboard')) {
+      //       incrementNotesVersion();
+      //     }
+      //   }
+      // });
       
       // General listener for when any note list might need an update
       socketInstance.on('notesListUpdated', (payload: NotesListUpdatePayload) => {
@@ -287,30 +367,36 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       });
 
       // Listener for collaborators when a note they are viewing is updated by someone else (not themselves)
-      // This is for the toast/notification that "X updated the note"
+      // This is the consolidated handler for 'notifyNoteUpdatedByOther'
       socketInstance.on('notifyNoteUpdatedByOther', (data: NotifyNoteUpdatedByOtherPayload) => {
-        console.log('[SocketContext] Received notifyNoteUpdatedByOther:', data);
+        console.log('[SocketContext] Received notifyNoteUpdatedByOther (consolidated):', data);
         if (user && data.editorUsername !== user.username) { // Ensure it's not self-notification
-          // If user is currently viewing THIS note, NoteEditor will show a more integrated update.
-          // This notification is more for when they are NOT viewing it, or as a general heads-up.
+          
+          // Always increment notes version to refresh lists if another user updated a note
+          incrementNotesVersion();
+
+          // If user is NOT currently viewing THIS note, add notification and update bell
+          // If they ARE viewing it, NoteEditor handles live updates, so a bell notification might be redundant or less critical.
           if (pathname !== `/notes/${data.noteId}`) {
             addNotification(
-              data.message,
+              data.message, // Use backend message
               data.type || 'info',
               data.noteId
             );
+            incrementNewSharedItemCounter(); 
           }
-          // This might also trigger a list refresh if dashboard shows last updated by etc.
-          incrementNotesVersion();
+          // No separate toast here; NoteEditor can provide more integrated feedback if the user is viewing the note.
+          // General notifications are handled by addNotification.
         }
       });
       
-      // ... other existing listeners like 'otherUserStartedEditing', 'otherUserStoppedEditing' ...
-
       return () => {
-        socketInstance.off('notifyUserOfShareOrUpdate');
-        socketInstance.off('notifyUserOfUnshare');
-        socketInstance.off('confirmShareAction');
+        socketInstance.off('newSharedNote'); 
+        socketInstance.off('yourShareRoleUpdated'); 
+        socketInstance.off('noteUnshared'); 
+        socketInstance.off('noteSharingConfirmation'); 
+        
+        socketInstance.off('noteSharingSettingsChanged'); 
         socketInstance.off('notifyNoteDeleted');
         socketInstance.off('notifyNoteArchivedUnarchived');
         socketInstance.off('notesListUpdated');
