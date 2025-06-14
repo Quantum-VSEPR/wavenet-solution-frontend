@@ -112,3 +112,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Custom styles for Quill editor height */
+.ql-editor {
+  min-height: 500px; /* Adjust as needed */
+  /* Ensure it uses theme colors if possible, though Quill has its own styling */
+  @apply bg-card text-foreground; 
+}
+
+/* Styles for animated gradient background */
+/* ...existing code... */

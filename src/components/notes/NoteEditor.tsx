@@ -68,7 +68,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
   const { user } = useAuth();
   const socketContext = useSocket();
   const socket = socketContext.socketInstance;
-  const { notesVersion } = useSocket();
   const { toast } = useToast();
 
   const [note, setNote] = useState<Note | null>(null);
@@ -212,7 +211,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     if (noteId) {
         fetchNote();
     }
-  }, [noteId, router, toast, isNewNote, notesVersion]);
+  }, [noteId, router, toast, isNewNote]); // Removed notesVersion from dependencies
 
   useEffect(() => {
     if (!socketContext || !socketContext.socketInstance || !note || !socket) {
@@ -222,15 +221,50 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     socketContext.socketInstance.emit('joinNoteRoom', currentNoteId);
 
     const handleRemoteNoteContentUpdated = (updatedNoteData: Note) => {
-      if (updatedNoteData._id === currentNoteId) {
-        if ( (updatedNoteData.content !== content || updatedNoteData.title !== title) &&
-             new Date(updatedNoteData.updatedAt).getTime() > (lastSaved?.getTime() || 0) ) {
+      // Ensure we are dealing with the current note
+      if (updatedNoteData._id !== localStateRef.current.note?._id) {
+        return;
+      }
+
+      const isContentDifferent = updatedNoteData.content !== localStateRef.current.content;
+      const isTitleDifferent = updatedNoteData.title !== localStateRef.current.title;
+      const isNewer = new Date(updatedNoteData.updatedAt).getTime() > (lastSaved?.getTime() || 0);
+
+      if ((isContentDifferent || isTitleDifferent) && isNewer) {
+        const editor = quillRef.current?.getEditor();
+        
+        // If the current user has focus in the editor, they are actively editing.
+        // Don't apply incoming content changes to prevent disruption.
+        if (editor?.hasFocus()) {
+          toast({
+            title: "Collaborator saved changes",
+            description: "Another user saved changes. Your editor content was not updated to prevent disruption. Save your work to sync.",
+            variant: "info",
+            duration: 7000
+          });
+          
+          // Update the underlying 'note' state to reflect the true backend state (including new content)
+          // Also update title state and lastSaved.
+          // The editor's displayed content (local `content` state) remains untouched for now.
+          setNote(updatedNoteData); 
+          setTitle(updatedNoteData.title); 
+          setLastSaved(new Date(updatedNoteData.updatedAt));
+          // DO NOT call setContent(updatedNoteData.content) here to avoid disrupting focused user
+        } else {
+          // If current user is not focused, apply all updates.
           setNote(updatedNoteData);
           setTitle(updatedNoteData.title);
-          setContent(updatedNoteData.content);
+          setContent(updatedNoteData.content); // Apply content change
           setLastSaved(new Date(updatedNoteData.updatedAt));
           setSyncStatus('synced');
-          toast({ title: 'Note Updated Externally', description: 'Content was updated by another collaborator.' });
+          // Check if the update was by the current user (e.g. an autosave confirmation)
+          // This check would be more robust if backend sent lastModifiedBy user ID
+          if (socketContext?.socketInstance?.id && updatedNoteData.lastModifiedBy !== user?._id) { // Assuming lastModifiedBy is available
+             toast({ title: 'Note Updated Externally', description: 'Content was updated by another collaborator.' });
+          } else if (localStateRef.current.content !== updatedNoteData.content || localStateRef.current.title !== updatedNoteData.title) {
+             // Fallback toast if not clearly by another user but changes were applied
+             toast({ title: 'Note Synced', description: 'The note has been updated.' });
+          }
         }
       }
     };
@@ -797,138 +831,141 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background text-foreground p-4 md:p-6 space-y-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-2 sm:space-y-0">
-        <Button variant="outline" onClick={() => router.back()} className="self-start sm:self-center text-foreground border-border hover:bg-muted">
-          <ArrowLeft className="mr-2 h-4 w-4" /> Back
-        </Button>
-        <div className="flex items-center space-x-2">
-          {syncStatus === 'syncing' && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
-          {syncStatus === 'synced' && <CheckCircle2 className="h-5 w-5 text-green-500" />}
-          {syncStatus === 'error' && <AlertTriangle className="h-5 w-5 text-red-500" />}
-          <span className="text-sm text-muted-foreground">
-            {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : (isNewNote ? 'Not saved yet' : '')}
-          </span>
-        </div>
-      </div>
-
-      {/* Action Buttons Moved Here */}
-      {!isReadOnlyView && (
-        <div className="flex flex-wrap items-center justify-end gap-2 mb-4 p-2 rounded-md bg-card border border-border">
-          <Button onClick={handleManualSave} disabled={isSaving || isLoading} className="bg-accent hover:bg-accent/90 text-accent-foreground">
-            <Save className="mr-2 h-4 w-4" /> {isSaving ? 'Saving...' : 'Save Changes'}
+    <div className="min-h-screen text-foreground p-2 sm:p-4 md:p-6 flex flex-col items-center">
+      {/* Centering and max-width container for the entire editor content */}
+      <div className="w-full max-w-4xl mx-auto">
+        {/* Back Button and Title Input Row */}
+        <div className="flex items-center justify-between mb-4">
+          <Button variant="outline" onClick={() => router.back()} className="mr-4">
+            <ArrowLeft className="h-4 w-4 mr-2" /> Back
           </Button>
+          <div className="flex items-center space-x-2">
+            {syncStatus === 'syncing' && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
+            {syncStatus === 'synced' && <CheckCircle2 className="h-5 w-5 text-green-500" />}
+            {syncStatus === 'error' && <AlertTriangle className="h-5 w-5 text-red-500" />}
+            <span className="text-sm text-muted-foreground">
+              {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : (isNewNote ? 'Not saved yet' : '')}
+            </span>
+          </div>
+        </div>
 
-          {canShare && !isNewNote && (
-            <Button variant="outline" onClick={() => setIsShareModalOpen(true)} className="border-accent-foreground/30 hover:bg-accent/20">
-              <Users className="mr-2 h-4 w-4 text-accent" /> Share
+        {/* Action Buttons Moved Here */}
+        {!isReadOnlyView && (
+          <div className="flex flex-wrap items-center justify-end gap-2 mb-4 p-2 rounded-md bg-card border border-border">
+            <Button onClick={handleManualSave} disabled={isSaving || isLoading} className="bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Save className="mr-2 h-4 w-4" /> {isSaving ? 'Saving...' : 'Save Changes'}
             </Button>
-          )}
 
-          {canDelete && !isNewNote && (
-            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="bg-red-600 hover:bg-red-700 text-white">
-                  <Trash2 className="mr-2 h-4 w-4" /> Delete
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="bg-background border-border">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This action cannot be undone. This will permanently delete the note.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="hover:bg-muted/50">Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-          
-          {!isNewNote && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="border-accent-foreground/30 hover:bg-accent/20">
-                  <Download className="mr-2 h-4 w-4 text-accent" /> Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-popover border-border text-popover-foreground">
-                <DropdownMenuItem onClick={handleExportAsMarkdown} className="hover:bg-accent/10 focus:bg-accent/20">Markdown (.md)</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportAsText} className="hover:bg-accent/10 focus:bg-accent/20">Text (.txt)</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportAsHTML} className="hover:bg-accent/10 focus:bg-accent/20">HTML (.html)</DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-border" />
-                <DropdownMenuItem onClick={handleExportAsPDF} className="hover:bg-accent/10 focus:bg-accent/20">PDF (.pdf)</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportAsDOCX} className="hover:bg-accent/10 focus:bg-accent/20">Word (.docx)</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {canShare && !isNewNote && (
+              <Button variant="outline" onClick={() => setIsShareModalOpen(true)} className="border-accent-foreground/30 hover:bg-accent/20">
+                <Users className="mr-2 h-4 w-4 text-accent" /> Share
+              </Button>
+            )}
+
+            {canDelete && !isNewNote && (
+              <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="bg-red-600 hover:bg-red-700 text-white">
+                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-background border-border">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. This will permanently delete the note.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="hover:bg-muted/50">Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            
+            {!isNewNote && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="border-accent-foreground/30 hover:bg-accent/20">
+                    <Download className="mr-2 h-4 w-4 text-accent" /> Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="bg-popover border-border text-popover-foreground">
+                  <DropdownMenuItem onClick={handleExportAsMarkdown} className="hover:bg-accent/10 focus:bg-accent/20">Markdown (.md)</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportAsText} className="hover:bg-accent/10 focus:bg-accent/20">Text (.txt)</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportAsHTML} className="hover:bg-accent/10 focus:bg-accent/20">HTML (.html)</DropdownMenuItem>
+                  <DropdownMenuSeparator className="bg-border" />
+                  <DropdownMenuItem onClick={handleExportAsPDF} className="hover:bg-accent/10 focus:bg-accent/20">PDF (.pdf)</DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleExportAsDOCX} className="hover:bg-accent/10 focus:bg-accent/20">Word (.docx)</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+        )}
+
+        <input
+          type="text"
+          value={title}
+          onChange={handleTitleChange}
+          onFocus={handleTitleFocus}
+          onBlur={handleTitleBlur}
+          placeholder="Note Title"
+          className="text-2xl font-bold p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-accent-foreground text-foreground placeholder-muted-foreground"
+          maxLength={MAX_TITLE_LENGTH}
+          disabled={isLoading || isReadOnlyView}
+        />
+        {title.length >= MAX_TITLE_LENGTH && (
+          <p className="text-xs text-red-500">Maximum title length of {MAX_TITLE_LENGTH} characters reached.</p>
+        )}
+
+        <div ref={quillEditorRef} className="flex-grow ql-editor-container bg-card border border-border rounded-md p-1 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="h-8 w-8 animate-spin text-accent" />
+            </div>
+          ) : (
+            <ReactQuill
+              ref={quillRef}
+              theme="snow"
+              value={content}
+              onChange={handleContentChange}
+              onFocus={handleContentFocus} // Restored
+              onBlur={handleContentBlur}   // Restored
+              modules={modules}
+              formats={quillFormats}
+              readOnly={isReadOnlyView}
+              placeholder="Start writing your masterpiece..."
+              className="prose dark:prose-invert max-w-none" // Removed min-h-[500px] as it's now handled by globals.css
+            />
           )}
         </div>
-      )}
 
-      <input
-        type="text"
-        value={title}
-        onChange={handleTitleChange}
-        onFocus={handleTitleFocus}
-        onBlur={handleTitleBlur}
-        placeholder="Note Title"
-        className="text-2xl font-bold p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-accent-foreground text-foreground placeholder-muted-foreground"
-        maxLength={MAX_TITLE_LENGTH}
-        disabled={isLoading || isReadOnlyView}
-      />
-      {title.length >= MAX_TITLE_LENGTH && (
-        <p className="text-xs text-red-500">Maximum title length of {MAX_TITLE_LENGTH} characters reached.</p>
-      )}
-
-      <div ref={quillEditorRef} className="flex-grow ql-editor-container min-h-[300px] bg-card border border-border rounded-md p-1 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="h-8 w-8 animate-spin text-accent" />
-          </div>
-        ) : (
-          <ReactQuill
-            ref={quillRef}
-            theme="snow"
-            value={content}
-            onChange={handleContentChange}
-            onFocus={handleContentFocus} // Restored
-            onBlur={handleContentBlur} // Restored
-            modules={modules}
-            formats={quillFormats}
-            readOnly={isReadOnlyView}
-            placeholder={isReadOnlyView ? "You have read-only access." : "Start writing your note..."}
-            className={`h-full w-full ${isReadOnlyView ? 'bg-muted/30' : 'bg-transparent'}`}
-            style={{ minHeight: '400px' }} // Ensure Quill itself takes up space
+        {note && !isNewNote && (
+          <ShareModal
+            isOpen={isShareModalOpen}
+            onClose={() => setIsShareModalOpen(false)}
+            note={note}
+            onNoteShared={async () => {
+              // Re-fetch note data to update sharing status and content if necessary
+              if (note?._id) {
+                try {
+                  const response = await api.get(`/notes/${note._id}`);
+                  setNote(response.data);
+                  // Optionally, update title and content if they could have changed due to sharing actions (e.g., if a shared user edited)
+                  // setTitle(response.data.title);
+                  // setContent(response.data.content);
+                  // setLastSaved(new Date(response.data.updatedAt));
+                  toast({ title: "Sharing Updated", description: "Note sharing information has been refreshed." });
+                } catch (error) {
+                  console.error("[NoteEditor] Error re-fetching note after share:", error);
+                  toast({ title: "Refresh Error", description: "Could not refresh note details after sharing.", variant: "destructive" });
+                }
+              }
+            }}
           />
         )}
-      </div>
-
-      {note && !isNewNote && (
-        <ShareModal
-          isOpen={isShareModalOpen}
-          onClose={() => setIsShareModalOpen(false)}
-          note={note}
-          onNoteShared={async () => {
-            // Re-fetch note data to update sharing status and content if necessary
-            if (note?._id) {
-              try {
-                const response = await api.get(`/notes/${note._id}`);
-                setNote(response.data);
-                // Optionally, update title and content if they could have changed due to sharing actions (e.g., if a shared user edited)
-                // setTitle(response.data.title);
-                // setContent(response.data.content);
-                // setLastSaved(new Date(response.data.updatedAt));
-                toast({ title: "Sharing Updated", description: "Note sharing information has been refreshed." });
-              } catch (error) {
-                console.error("[NoteEditor] Error re-fetching note after share:", error);
-                toast({ title: "Refresh Error", description: "Could not refresh note details after sharing.", variant: "destructive" });
-              }
-            }
-          }}
-        />
-      )}
+      </div> 
     </div>
   );
 };

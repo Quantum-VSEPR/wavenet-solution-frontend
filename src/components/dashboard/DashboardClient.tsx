@@ -420,7 +420,7 @@ const DashboardClient = () => {
   };
 
   return (
-    <div className="container mx-auto p-4 md:p-6 space-y-6 bg-background text-foreground min-h-screen">
+    <div className="container mx-auto p-4 md:p-6 space-y-6  text-foreground min-h-screen">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         {/* Reverted H1 styling */}
         <h1 className="text-3xl md:text-4xl font-bold text-foreground">
