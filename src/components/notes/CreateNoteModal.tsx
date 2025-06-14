@@ -82,10 +82,10 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({ isOpen, onClose, onNo
         onClose();
       }
     }}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[480px] bg-background text-foreground border-border">
         <DialogHeader>
-          <DialogTitle>Create New Note</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-foreground">Create New Note</DialogTitle>
+          <DialogDescription className="text-muted-foreground">
             Fill in the details below to create a new note.
           </DialogDescription>
         </DialogHeader>
@@ -96,9 +96,13 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({ isOpen, onClose, onNo
               name="title"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Title</FormLabel>
+                  <FormLabel className="text-foreground">Title</FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter note title" {...field} />
+                    <Input
+                      placeholder="Enter note title"
+                      {...field}
+                      className="bg-input text-foreground border-border focus:ring-accent-foreground"
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -109,11 +113,11 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({ isOpen, onClose, onNo
               name="content"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Content (Optional)</FormLabel>
+                  <FormLabel className="text-foreground">Content (Optional)</FormLabel>
                   <FormControl>
                     <Textarea
                       placeholder="Start writing your note..."
-                      className="resize-none min-h-[100px]"
+                      className="resize-none min-h-[300px] bg-input text-foreground border-border focus:ring-accent-foreground"
                       {...field}
                     />
                   </FormControl>
@@ -123,11 +127,11 @@ const CreateNoteModal: React.FC<CreateNoteModalProps> = ({ isOpen, onClose, onNo
             />
             <DialogFooter>
               <DialogClose asChild>
-                <Button type="button" variant="outline" onClick={() => { form.reset(); onClose();}}>
+                <Button type="button" variant="outline" onClick={() => { form.reset(); onClose();}} className="text-foreground border-border hover:bg-muted">
                   Cancel
                 </Button>
               </DialogClose>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting} className="bg-accent text-accent-foreground hover:bg-accent/90">
                 {isSubmitting ? 'Creating...' : 'Create Note'}
               </Button>
             </DialogFooter>

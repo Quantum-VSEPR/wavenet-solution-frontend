@@ -7,7 +7,7 @@ import api from '@/lib/api';
 import { Note } from '@/types';
 import { Button } from '@/components/ui/button';
 // Removed Archive, Unarchive icons as they are not used yet
-import { PlusCircle, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react'; 
+import { PlusCircle, ChevronLeft, ChevronRight, ArrowUpDown, Search, Loader2 } from 'lucide-react'; // Added Search and Loader2 icons
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import NoteItem from '@/components/notes/NoteItem'; 
@@ -20,7 +20,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input"; // Added Input for search
 import { searchNotes, SearchNoteResult } from "@/services/noteService"; // Added searchNotes service
 
 const NOTES_PER_PAGE = 10;
@@ -329,114 +328,179 @@ const DashboardClient = () => {
     return <p>Loading notes...</p>;
   }
 
+  const renderPaginationControls = (
+    currentPage: number,
+    totalPages: number,
+    onPageChange: (page: number) => void,
+    notesCount: number,
+    isLoadingState: boolean
+  ) => {
+    if (totalPages <= 1) return null; // No pagination needed if only one page
+
+    return (
+      <div className="flex justify-center items-center mt-6 space-x-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage <= 1 || isLoadingState}
+        >
+          <ChevronLeft className="h-4 w-4 mr-1" />
+          Previous
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          Page {currentPage} of {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage >= totalPages || isLoadingState}
+        >
+          Next
+          <ChevronRight className="h-4 w-4 ml-1" />
+        </Button>
+      </div>
+    );
+  };
+
+  const renderSortDropdown = (
+    currentSort: string,
+    onSortChange: (sortValue: string) => void,
+    isLoadingState: boolean
+  ) => {
+    return (
+      <Select value={currentSort} onValueChange={onSortChange} disabled={isLoadingState}>
+        <SelectTrigger className="w-[220px] text-sm">
+          <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {sortOptions.map(option => (
+            <SelectItem key={option.value} value={option.value} className="text-sm">
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
+  
+  const renderNotesList = (notes: Note[], type: 'my' | 'shared' | 'archived') => {
+    if (isLoading) {
+      return (
+        <div className="col-span-full flex justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        </div>
+      );
+    }
+
+    if (searchQuery.trim() && !isSearching && searchResults.length === 0) {
+      return <p className="text-center text-muted-foreground col-span-full">No notes found matching your search.</p>;
+    }
+    
+    const notesToDisplay = searchQuery.trim() ? searchResults : notes;
+
+    if (notesToDisplay.length === 0) {
+      return <p className="text-center text-muted-foreground col-span-full">No notes here yet. Create one to get started!</p>;
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {notesToDisplay.map((note) => (
+          <NoteItem 
+            key={note._id} 
+            note={note} 
+            currentTab={type === 'my' ? 'myNotes' : type === 'shared' ? 'sharedNotes' : 'archivedNotes'} 
+            onNoteUpdate={handleNoteUpdate} // Pass the stable callback
+          />
+        ))}
+      </div>
+    );
+  };
+
   return (
-    <div className="container mx-auto p-4 md:p-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Dashboard</h1>
-        <Button onClick={handleCreateNewNote}>
-          <PlusCircle className="mr-2 h-4 w-4" /> Create New Note
+    <div className="container mx-auto p-4 md:p-6 space-y-6 bg-background text-foreground min-h-screen">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+        {/* Reverted H1 styling */}
+        <h1 className="text-3xl md:text-4xl font-bold text-foreground">
+          My Dashboard
+        </h1>
+        {/* Ensured Button structure is correct for functionality */}
+        <Button 
+          onClick={handleCreateNewNote} 
+          className="bg-accent hover:bg-accent/90 text-accent-foreground font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 ease-in-out transform hover:-translate-y-0.5 flex items-center space-x-2"
+        >
+          <PlusCircle className="h-5 w-5" />
+          <span>Create New Note</span>
         </Button>
       </div>
 
-      {/* Search Input */}
-      <div className="mb-6">
-        <Input 
-          type="search"
-          placeholder="Search your notes (title or content)..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full p-2 border rounded-md"
-        />
-      </div>
-
-      <CreateNoteModal 
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onNoteCreated={handleNoteCreated}
-      />
-
-      {searchQuery.trim() ? (
-        <section className="mb-8">
-          <h2 className="text-2xl font-semibold mb-4">
-            Search Results for "{searchQuery}" ({searchResults.length})
-          </h2>
-          {isSearching && <p>Searching...</p>}
-          {!isSearching && searchResults.length === 0 && (
-            <p>No notes found matching your search.</p>
-          )}
-          {!isSearching && searchResults.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {searchResults.map((note) => (
-                <NoteItem key={note._id} note={note} onNoteUpdate={handleNoteUpdate} />
-              ))}
+      {/* Centered and Styled Search Bar - This part remains as per your previous request */}
+      <div className="my-6 flex justify-center">
+        <div className="relative w-full max-w-xl lg:max-w-2xl"> {/* Increased max-width */}
+          <input
+            type="search"
+            placeholder="Search all your notes..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full h-14 pl-14 pr-6 rounded-full bg-card/80 border-2 border-border focus:ring-2 focus:ring-accent focus:border-accent outline-none text-foreground placeholder-muted-foreground transition-all duration-300 ease-in-out shadow-lg hover:shadow-xl focus:shadow-2xl text-base" 
+          />
+          <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none"> {/* Adjusted padding */}
+            <Search className="h-6 w-6 text-muted-foreground" /> {/* Increased icon size */}
+          </div>
+          {isSearching && (
+            <div className="absolute inset-y-0 right-0 pr-5 flex items-center"> {/* Adjusted padding */}
+              <Loader2 className="h-6 w-6 animate-spin text-accent" /> {/* Increased icon size */}
             </div>
           )}
-        </section>
-      ) : (
-        <Tabs defaultValue="active" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6">
-            <TabsTrigger value="active">My Notes</TabsTrigger>
-            <TabsTrigger value="shared">Shared With Me</TabsTrigger>
-            <TabsTrigger value="archived">Archived Notes</TabsTrigger>
+        </div>
+      </div>
+      
+      {searchQuery.trim() && !isSearching && (
+        <div className="mb-6">
+          <h2 className="text-2xl font-semibold mb-3 text-center">Search Results ({searchResults.length})</h2>
+          {searchResults.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {searchResults.map((noteResult) => (
+                <NoteItem 
+                  key={noteResult._id} 
+                  note={noteResult} 
+                  onUpdate={handleNoteUpdate} 
+                  // Determine if the note is shared or archived based on its properties for correct actions
+                  isSharedWithMe={noteResult.sharedWith?.some(s => s.userId === token) && noteResult.creator !== token} // Example logic
+                  isArchived={noteResult.isArchived || false} // Example logic
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground">No notes found matching your search criteria.</p>
+          )}
+        </div>
+      )}
+
+      {!searchQuery.trim() && ( // Only show tabs if not searching
+        <Tabs defaultValue="my-notes" className="w-full">
+          <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3 h-auto sm:h-12 bg-muted/50 rounded-lg p-1">
+            <TabsTrigger value="my-notes" className="py-2.5 text-sm sm:text-base data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:shadow-md rounded-md transition-all duration-200">
+              My Notes
+            </TabsTrigger>
+            <TabsTrigger value="shared" className="py-2.5 text-sm sm:text-base data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:shadow-md rounded-md transition-all duration-200">
+              Shared With Me
+            </TabsTrigger>
+            <TabsTrigger value="archived" className="py-2.5 text-sm sm:text-base data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:shadow-md rounded-md transition-all duration-200">
+              Archived Notes
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="active">
+          <TabsContent value="my-notes">
             <section>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-semibold">My Notes ({myNotesTotalCount})</h2>
-                <Select value={myNotesSortBy} onValueChange={handleMyNotesSortChange}>
-                  <SelectTrigger className="w-[220px] text-sm">
-                    <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortOptions.map(option => (
-                      <SelectItem key={option.value} value={option.value} className="text-sm">
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {renderSortDropdown(myNotesSortBy, handleMyNotesSortChange, isLoading)}
               </div>
-              {myNotes.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {myNotes.map((note) => (
-                    <NoteItem 
-                      key={note._id} 
-                      note={note} 
-                      currentTab="myNotes" 
-                      onNoteUpdate={handleNoteUpdate} // Pass the stable callback
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p>You haven&apos;t created any notes yet.</p>
-              )}
-              {myNotesTotalPages > 1 && (
-                <div className="flex justify-center items-center mt-6 space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleMyNotesPageChange(myNotesPage - 1)}
-                    disabled={myNotesPage <= 1}
-                  >
-                    <ChevronLeft className="h-4 w-4 mr-1" />
-                    Previous
-                  </Button>
-                  <span className="text-sm text-muted-foreground">
-                    Page {myNotesPage} of {myNotesTotalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleMyNotesPageChange(myNotesPage + 1)}
-                    disabled={myNotesPage >= myNotesTotalPages}
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Button>
-                </div>
-              )}
+              {renderNotesList(myNotes, 'my')}
+              {renderPaginationControls(myNotesPage, myNotesTotalPages, handleMyNotesPageChange, myNotesTotalCount, isLoading)}
             </section>
           </TabsContent>
 
@@ -444,60 +508,10 @@ const DashboardClient = () => {
             <section>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-semibold">Shared With Me ({sharedNotesTotalCount})</h2>
-                <Select value={sharedNotesSortBy} onValueChange={handleSharedNotesSortChange}>
-                  <SelectTrigger className="w-[220px] text-sm">
-                    <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortOptions.map(option => (
-                      <SelectItem key={option.value} value={option.value} className="text-sm">
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {renderSortDropdown(sharedNotesSortBy, handleSharedNotesSortChange, isLoading)}
               </div>
-              {sharedNotes.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {sharedNotes.map((note) => (
-                    <NoteItem 
-                      key={note._id} 
-                      note={note} 
-                      showCreator={true} 
-                      currentTab="sharedNotes" 
-                      onNoteUpdate={handleNoteUpdate} // Pass the stable callback
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p>No notes have been shared with you yet.</p>
-              )}
-              {sharedNotesTotalPages > 1 && (
-                <div className="flex justify-center items-center mt-6 space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleSharedNotesPageChange(sharedNotesPage - 1)}
-                    disabled={sharedNotesPage <= 1}
-                  >
-                    <ChevronLeft className="h-4 w-4 mr-1" />
-                    Previous
-                  </Button>
-                  <span className="text-sm text-muted-foreground">
-                    Page {sharedNotesPage} of {sharedNotesTotalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleSharedNotesPageChange(sharedNotesPage + 1)}
-                    disabled={sharedNotesPage >= sharedNotesTotalPages}
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Button>
-                </div>
-              )}
+              {renderNotesList(sharedNotes, 'shared')}
+              {renderPaginationControls(sharedNotesPage, sharedNotesTotalPages, handleSharedNotesPageChange, sharedNotesTotalCount, isLoading)}
             </section>
           </TabsContent>
           
@@ -505,63 +519,21 @@ const DashboardClient = () => {
             <section>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-semibold">Archived Notes ({archivedNotesTotalCount})</h2>
-                <Select value={archivedNotesSortBy} onValueChange={handleArchivedNotesSortChange}>
-                  <SelectTrigger className="w-[220px] text-sm">
-                    <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/70" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sortOptions.map(option => (
-                      <SelectItem key={option.value} value={option.value} className="text-sm">
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {renderSortDropdown(archivedNotesSortBy, handleArchivedNotesSortChange, isLoading)}
               </div>
-              {archivedNotes.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {archivedNotes.map((note) => (
-                    <NoteItem 
-                      key={note._id} 
-                      note={note} 
-                      currentTab="archivedNotes" 
-                      onNoteUpdate={handleNoteUpdate} // Pass the stable callback
-                    /> 
-                  ))}
-                </div>
-              ) : (
-                <p>You have no archived notes.</p>
-              )}
-              {archivedNotesTotalPages > 1 && (
-                <div className="flex justify-center items-center mt-6 space-x-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleArchivedNotesPageChange(archivedNotesPage - 1)}
-                    disabled={archivedNotesPage <= 1}
-                  >
-                    <ChevronLeft className="h-4 w-4 mr-1" />
-                    Previous
-                  </Button>
-                  <span className="text-sm text-muted-foreground">
-                    Page {archivedNotesPage} of {archivedNotesTotalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleArchivedNotesPageChange(archivedNotesPage + 1)}
-                    disabled={archivedNotesPage >= archivedNotesTotalPages}
-                  >
-                    Next
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Button>
-                </div>
-              )}
+              {renderNotesList(archivedNotes, 'archived')}
+              {renderPaginationControls(archivedNotesPage, archivedNotesTotalPages, handleArchivedNotesPageChange, archivedNotesTotalCount, isLoading)}
             </section>
           </TabsContent>
         </Tabs>
       )}
+
+      {/* Add the CreateNoteModal here */}
+      <CreateNoteModal 
+        isOpen={isCreateModalOpen} 
+        onClose={() => setIsCreateModalOpen(false)} 
+        onNoteCreated={handleNoteCreated} 
+      />
     </div>
   );
 };

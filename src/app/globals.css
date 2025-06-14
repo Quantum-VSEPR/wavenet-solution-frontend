@@ -18,8 +18,15 @@
     --card-foreground: 0 0% 3.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
+    --primary: 0 0% 9%; /* Main interactive elements, often a darker color in light mode */
+    --primary-foreground: 0 0% 98%; /* Text on primary elements */
+    
+    /* Custom Accent Palette */
+    --accent-primary: 45 95% 55%; /* Vibrant Yellow/Gold */
+    --accent-primary-foreground: 0 0% 98%; /* White text for primary accent */
+    --accent-secondary: 180 80% 45%; /* Teal/Cyan */
+    --accent-secondary-foreground: 0 0% 98%; /* White text for secondary accent */
+
     --secondary: 0 0% 96.1%;
     --secondary-foreground: 0 0% 9%;
     --muted: 0 0% 96.1%;
@@ -37,6 +44,17 @@
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
+
+    /* Themeable Gradient for Layout */
+    --gradient-start: 220 10% 95%; /* Light cool gray */
+    --gradient-middle: 210 10% 98%; /* Lighter cool gray */
+    --gradient-end: 220 10% 95%;   /* Light cool gray */
+
+    /* Blob Colors - Light Theme */
+    --blob-color-1: 210 80% 70%; /* Light Blue */
+    --blob-color-2: 270 80% 75%; /* Light Purple */
+    --blob-color-3: 150 70% 70%; /* Light Green */
+    --blob-color-4: 50 90% 70%;  /* Light Yellow */
   }
   .dark {
     --background: 0 0% 3.9%;
@@ -45,8 +63,15 @@
     --card-foreground: 0 0% 98%;
     --popover: 0 0% 3.9%;
     --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
+    --primary: 0 0% 98%; /* Main interactive elements, often a lighter color in dark mode */
+    --primary-foreground: 0 0% 9%; /* Text on primary elements */
+
+    /* Custom Accent Palette - Dark Mode */
+    --accent-primary: 42 90% 50%; /* Slightly deeper Gold for dark mode */
+    --accent-primary-foreground: 0 0% 98%; /* White text for primary accent */
+    --accent-secondary: 175 75% 40%; /* Slightly deeper Teal for dark mode */
+    --accent-secondary-foreground: 0 0% 98%; /* White text for secondary accent */
+
     --secondary: 0 0% 14.9%;
     --secondary-foreground: 0 0% 98%;
     --muted: 0 0% 14.9%;
@@ -63,6 +88,17 @@
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+
+    /* Themeable Gradient for Layout - Dark */
+    --gradient-start: 220 15% 10%; /* Dark cool gray */
+    --gradient-middle: 220 10% 5%;  /* Darker cool gray */
+    --gradient-end: 220 15% 10%;   /* Dark cool gray */
+
+    /* Blob Colors - Dark Theme */
+    --blob-color-1: 210 50% 30%; /* Dark Blue */
+    --blob-color-2: 270 50% 35%; /* Dark Purple */
+    --blob-color-3: 150 40% 30%; /* Dark Green */
+    --blob-color-4: 50 60% 30%;  /* Dark Gold/Yellow */
   }
 }
 

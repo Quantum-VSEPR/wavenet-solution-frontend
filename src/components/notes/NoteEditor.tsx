@@ -8,7 +8,7 @@ import api from '@/lib/api';
 import { Note, User } from '@/types';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Save, Users, Trash2, Eye, ArrowLeft, Copy, Loader2, CheckCircle2, AlertTriangle, Download } from 'lucide-react'; 
+import { Save, Users, Trash2, ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Download } from 'lucide-react';
 import ShareModal from './ShareModal';
 import {
   AlertDialog,
@@ -24,23 +24,22 @@ import {
 import { AxiosError } from 'axios';
 import 'react-quill/dist/quill.snow.css';
 import dynamic from 'next/dynamic';
-import { debounce } from 'lodash'; // Added import for debounce
+import { debounce } from 'lodash';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import TurndownService from 'turndown';
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import DOMPurify from 'dompurify';
-// import { asBlob } from 'html-docx-js'; // If using it as a module
-import htmlDocx from 'html-docx-js/dist/html-docx'; // Correct import based on .d.ts
-import { DeltaStatic, Sources } from 'quill'; // Import DeltaStatic and Sources
+import htmlDocx from 'html-docx-js/dist/html-docx';
+import { DeltaStatic, Sources } from 'quill';
+import ReactQuillType from 'react-quill'; // Import ReactQuill type
 
 // Define the list of fonts to be whitelisted and used in the toolbar
 const QUILL_FONT_WHITELIST = [
   'sans-serif', // Default
   'serif',      // Default
   'monospace',  // Default
-       // Quill will handle this as ql
 ];
 
 // Define the formats to be used by Quill, corresponding to the toolbar
@@ -62,13 +61,14 @@ interface NoteEditorProps {
 }
 
 const MAX_TITLE_LENGTH = 100;
+
 const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
-  const isNewNote = noteId === 'new'; // Define isNewNote
+  const isNewNote = noteId === 'new';
   const router = useRouter();
   const { user } = useAuth();
-  const socketContext = useSocket(); 
+  const socketContext = useSocket();
   const socket = socketContext.socketInstance;
-  const { notesVersion } = useSocket(); // Get notesVersion
+  const { notesVersion } = useSocket();
   const { toast } = useToast();
 
   const [note, setNote] = useState<Note | null>(null);
@@ -85,9 +85,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
   const [userMadeChangesInThisSession, setUserMadeChangesInThisSession] = useState(false);
   const turndownService = useMemo(() => new TurndownService(), []);
 
-  const quillEditorRef = useRef<HTMLDivElement>(null);
+  const quillRef = useRef<ReactQuillType>(null); // Correctly typed ref for ReactQuill
+  const quillEditorRef = useRef<HTMLDivElement>(null); // For PDF export, if needed for direct DOM access
 
-  // Ref to hold the latest state for the unmount cleanup function
   const localStateRef = useRef({
     title,
     content,
@@ -96,10 +96,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     titleOnLoadOrFocus,
     note,
     user,
-    isNewNote // Include isNewNote if it affects unmount logic
+    isNewNote
   });
 
-  // Effect to keep localStateRef updated
   useEffect(() => {
     localStateRef.current = {
       title,
@@ -113,7 +112,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     };
   }, [title, content, userMadeChangesInThisSession, contentOnLoadOrFocus, titleOnLoadOrFocus, note, user, isNewNote]);
 
-  // Define Quill modules
   const modules = useMemo(() => ({
     toolbar: [
       [{ 'font': QUILL_FONT_WHITELIST }, { 'header': [1, 2, 3, 4, 5, 6, false] }],
@@ -127,13 +125,8 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
       [{ 'list': 'check' }],
       ['clean']
     ],
-    //clipboard: {
-    //  matchVisual: false, // Important to prevent Quill from trying to match styles too closely from pasted content
-    //},
   }), []);
 
-
-  // Dynamically import ReactQuill and register custom fonts
   const ReactQuill = useMemo(() => dynamic(() =>
     import('react-quill').then((reactQuillModule) => {
       if (reactQuillModule.Quill) {
@@ -141,24 +134,19 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
         const Font = QuillInstance.import('formats/font');
         Font.whitelist = QUILL_FONT_WHITELIST;
         QuillInstance.register(Font, true);
-        console.log('[NoteEditor] Custom fonts registered with Quill.');
       } else {
-        // Fallback or error if Quill is not found on the module
-        // This might happen if react-quill changes its export structure
-        // or if 'quill' itself needs to be imported directly and registered.
         console.error('[NoteEditor] Could not obtain Quill instance from react-quill module to register fonts.');
       }
-      return reactQuillModule; // Return the original 'react-quill' module
+      return reactQuillModule;
     }), { ssr: false }
   ), []);
 
-  // Permission checks using useMemo
   const canEdit = useMemo(() => {
     if (isNewNote) return true;
     if (!note || !user) return false;
     const isCreator = typeof note.creator === 'string' ? note.creator === user._id : note.creator._id === user._id;
     if (isCreator) return true;
-    return note.sharedWith.some(s => 
+    return note.sharedWith.some(s =>
       (typeof s.userId === 'string' ? s.userId === user._id : (s.userId as User)._id === user._id) && s.role === 'write'
     );
   }, [note, user, isNewNote]);
@@ -167,42 +155,38 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
 
   const canShare = useMemo(() => {
     if (isNewNote || !note || !user) return false;
-    // Only the creator can share the note initially or manage top-level sharing settings
     return typeof note.creator === 'string' ? note.creator === user._id : note.creator._id === user._id;
   }, [note, user, isNewNote]);
 
   const canDelete = useMemo(() => {
     if (isNewNote || !note || !user) return false;
-    // Only the creator can delete the note
     return typeof note.creator === 'string' ? note.creator === user._id : note.creator._id === user._id;
   }, [note, user, isNewNote]);
 
-  // Fetch note data
   useEffect(() => {
     if (isNewNote) {
       setIsLoading(false);
       setTitle('Untitled Note');
       setContent('');
-      setContentOnLoadOrFocus(''); // Initialize for new note
-      setTitleOnLoadOrFocus('Untitled Note'); // Initialize for new note
-      setUserMadeChangesInThisSession(false); 
+      setContentOnLoadOrFocus('');
+      setTitleOnLoadOrFocus('Untitled Note');
+      setUserMadeChangesInThisSession(false);
       return;
     }
 
     const fetchNote = async () => {
-      console.log(`[NoteEditor] Fetching note ${noteId} due to noteId or notesVersion change. Current notesVersion: ${notesVersion}`);
       setIsLoading(true);
-      setUserMadeChangesInThisSession(false); 
+      setUserMadeChangesInThisSession(false);
       try {
         const response = await api.get(`/notes/${noteId}`);
         setNote(response.data);
         setTitle(response.data.title);
         setContent(response.data.content);
-        setContentOnLoadOrFocus(response.data.content); // Initialize with fetched content
-        setTitleOnLoadOrFocus(response.data.title); // Initialize with fetched title
+        setContentOnLoadOrFocus(response.data.content);
+        setTitleOnLoadOrFocus(response.data.title);
         setLastSaved(new Date(response.data.updatedAt));
         setSyncStatus('synced');
-      } catch (error) { 
+      } catch (error) {
         const fetchError = error as AxiosError;
         console.error('[NoteEditor] Error fetching note:', fetchError);
         const errorStatus = fetchError.response?.status;
@@ -219,7 +203,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
             description: 'Could not load the note. Please try again later.',
             variant: 'destructive',
           });
-          setSyncStatus('error'); 
+          setSyncStatus('error');
         }
       }
       setIsLoading(false);
@@ -228,61 +212,38 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     if (noteId) {
         fetchNote();
     }
-  }, [noteId, router, toast, isNewNote, notesVersion]); // Added notesVersion to dependency array
+  }, [noteId, router, toast, isNewNote, notesVersion]);
 
-  // Socket.IO listeners
   useEffect(() => {
-    // Ensure socket instance exists, is connected, and note details are available
-    if (!socketContext || !socketContext.socketInstance || !note || !socket) { // Added null check for socket
+    if (!socketContext || !socketContext.socketInstance || !note || !socket) {
       return;
     }
-
     const currentNoteId = note._id;
-
-    // Join room
-    console.log(`[NoteEditor] Attempting to join note room ${currentNoteId} with socket ID: ${socketContext.socketInstance.id}`);
     socketContext.socketInstance.emit('joinNoteRoom', currentNoteId);
-    console.log(`[NoteEditor] 'joinNoteRoom' event emitted for ${currentNoteId}`);
 
-    // Handles content/title updates from other collaborators via 'noteUpdated' event from the server
-    // This event should be emitted by the backend when a note's content or title is successfully saved.
     const handleRemoteNoteContentUpdated = (updatedNoteData: Note) => {
-      // Ensure the update is for the current note and not an echo of the current user's own changes.
-      // The backend should ideally not send 'noteUpdated' back to the originating socket that triggered the save.
-      // If it does, we need a way to identify and ignore it (e.g., by checking updatedBy if available).
       if (updatedNoteData._id === currentNoteId) {
-        // Check if the incoming data is different from the current state
-        // and if the timestamp indicates it's a newer update.
-        if ( (updatedNoteData.content !== content || updatedNoteData.title !== title) && 
+        if ( (updatedNoteData.content !== content || updatedNoteData.title !== title) &&
              new Date(updatedNoteData.updatedAt).getTime() > (lastSaved?.getTime() || 0) ) {
-          
-          console.log('[NoteEditor] Received remote noteUpdated (content/title):', updatedNoteData);
           setNote(updatedNoteData);
           setTitle(updatedNoteData.title);
           setContent(updatedNoteData.content);
           setLastSaved(new Date(updatedNoteData.updatedAt));
           setSyncStatus('synced');
-          // Avoid toast if change was likely from this user, or make it more subtle
-          // For now, keeping the toast for any external update.
           toast({ title: 'Note Updated Externally', description: 'Content was updated by another collaborator.' });
         }
       }
     };
 
-    // Handles updates to the note's sharing details (e.g., roles, new collaborators)
     const handleNoteSharingUpdated = (updatedSharedNote: Note) => {
       if (updatedSharedNote._id === currentNoteId && user) {
-        console.log('[NoteEditor] Received noteSharingUpdated:', updatedSharedNote);
-        
-        const oldCanEdit = canEdit; 
-        setNote(updatedSharedNote); 
-        
+        const oldCanEdit = canEdit;
+        setNote(updatedSharedNote);
         const newIsCreator = typeof updatedSharedNote.creator === 'string' ? updatedSharedNote.creator === user._id : updatedSharedNote.creator._id === user._id;
-        const newShareInfo = updatedSharedNote.sharedWith.find(s => 
+        const newShareInfo = updatedSharedNote.sharedWith.find(s =>
           (typeof s.userId === 'string' ? s.userId === user._id : (s.userId as User)?._id === user._id)
         );
         const newCanEdit = newIsCreator || (newShareInfo?.role === 'write');
-
         if (!oldCanEdit && newCanEdit) {
           toast({ title: 'Permissions Updated', description: 'You now have edit access to this note.' });
         } else if (oldCanEdit && !newCanEdit) {
@@ -291,39 +252,19 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
       }
     };
 
-    // Handles the scenario where the current user is unshared from this specific note
     const handleNoteUnshared = (unshareData: { noteId: string; title: string; unsharerId?: string }) => {
       if (unshareData.noteId === currentNoteId && user) {
-        console.log('[NoteEditor] Received noteUnshared for current note:', unshareData);
-        
-        setNote(prevNote => { // Added setNote to handle the state update properly
+        setNote(prevNote => {
           if (!prevNote) return null;
-
-          // Check if the current user is the one being unshared.
-          // This event might be broad, so we need to confirm.
-          // The backend should ideally send a more targeted event or include who was unshared.
-          // For now, assume if this event comes, and the note is the current one,
-          // the current user's access *might* have changed. Re-fetch or update note state.
-          
-          // Optimistically remove self from sharedWith if this event implies current user was removed
-          // This is a simplification; a full note re-fetch might be safer if backend logic is complex.
           const userWasUnshared = !prevNote.sharedWith.some(s => (typeof s.userId === 'string' ? s.userId === user._id : (s.userId as User)?._id === user._id));
-          
-          if (userWasUnshared) { // If user is no longer in sharedWith (or was never there)
+          if (userWasUnshared) {
              toast({
               title: 'Access Changed',
-              description: `You have been unshared from the note "${unshareData.title}".`,
-              variant: 'default', // Changed from 'warning'
+              description: `You have been unshared from the note \"${unshareData.title}\".`,
+              variant: 'default',
             });
-            // Potentially redirect or disable editing if access is lost.
-            // The `canEdit` and `isReadOnlyView` memos should update based on `note` state.
-            // If the note object itself is updated from a `noteSharingUpdated` event, that's better.
-            // This `noteUnshared` handler is more of a fallback or specific notification.
           }
-          // For now, just update the note state if it's available from the event, or re-fetch.
-          // The current `noteUnshared` event from backend doesn't provide the full updated note.
-          // So, we might need to trigger a re-fetch or rely on `noteSharingUpdated` for full state.
-          return prevNote; // Or trigger a refetch: fetchNote();
+          return prevNote;
         });
       }
     };
@@ -335,24 +276,20 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     return () => {
       if (socketContext.socketInstance && socketContext.socketInstance.connected && note && note._id) {
         const noteIdToLeave = note._id;
-        console.log(`[NoteEditor] Attempting to leave note room ${noteIdToLeave} with socket ID: ${socketContext.socketInstance.id}`);
         socketContext.socketInstance.emit('leaveNoteRoom', noteIdToLeave);
-        console.log(`[NoteEditor] 'leaveNoteRoom' event emitted for ${noteIdToLeave}`);
       }
       socketContext.socketInstance?.off('noteUpdated', handleRemoteNoteContentUpdated);
       socketContext.socketInstance?.off('noteSharingUpdated', handleNoteSharingUpdated);
       socketContext.socketInstance?.off('noteUnshared', handleNoteUnshared);
     };
-  }, [socketContext, note, user, toast, title, content, lastSaved, canEdit, setNote, setTitle, setContent, setLastSaved, setSyncStatus, socket]); // Removed currentNoteId and event handlers from dependencies
+  }, [socketContext, note, user, toast, title, content, lastSaved, canEdit, setNote, setTitle, setContent, setLastSaved, setSyncStatus, socket]);
 
-  // handleSave
   const handleSave = useCallback(async (currentTitle: string, currentContent: string, showSuccessToast = false, isAuto = false) => {
-    if (!user || isSaving) { // Prevent concurrent saves or saves when no user
+    if (!user || isSaving) {
       return;
     }
-
     if (isReadOnlyView) {
-      if (showSuccessToast) { // Only show read-only toast on manual save attempt
+      if (showSuccessToast) {
         toast({
           title: "Read-only Access",
           description: "You do not have permission to edit this note.",
@@ -363,151 +300,329 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     }
     setIsSaving(true);
     setSyncStatus('syncing');
-
-    const payload = { title: currentTitle.slice(0, MAX_TITLE_LENGTH), content: currentContent, isAutoSave: isAuto }; // Added isAutoSave
-
+    const payload = { title: currentTitle.slice(0, MAX_TITLE_LENGTH), content: currentContent, isAutoSave: isAuto };
     let savedNoteData: Note | null = null;
-
     try {
       let response;
-      if (isNewNote && !note?._id) { // Creating a new note
+      if (isNewNote && !note?._id) {
         response = await api.post('/notes', payload);
         savedNoteData = response.data as Note;
-        setNote(savedNoteData); // Set the full note object for the new note
-        router.replace(`/notes/${savedNoteData._id}`); // Navigate to the new note's URL
+        setNote(savedNoteData);
+        router.replace(`/notes/${savedNoteData._id}`);
         toast({ title: 'Note Created', description: 'Your note has been saved.' });
-      } else if (note?._id) { // Updating an existing note
+      } else if (note?._id) {
         response = await api.put(`/notes/${note._id}`, payload);
         savedNoteData = response.data as Note;
-        setNote(savedNoteData); // Update the note state with the full response
+        setNote(savedNoteData);
         if (showSuccessToast) {
           toast({ title: 'Note Saved', description: 'Your changes have been saved.' });
         }
       } else {
-        // This case should ideally not be reached if logic is correct
         console.error("handleSave called without a note ID for an existing note or for a new note properly.");
         toast({title: "Save Error", description: "Cannot determine save operation.", variant: "destructive"});
         setSyncStatus('error');
-        return; // Return early as setIsSaving(false) in finally will cover this path.
+        return;
       }
-
-      // Common actions for both new and updated notes if save was successful
       if (savedNoteData) {
         setTitle(savedNoteData.title);
         setLastSaved(new Date(savedNoteData.updatedAt));
         setSyncStatus('synced');
-        // No client-side socket.emit('noteChange') needed here.
-        // The backend API call (api.put or api.post) will save the note,
-        // and the noteController on the backend is responsible for emitting 'noteUpdated' 
-        // to the note room (currentNoteId) via io.to(noteId).emit("noteUpdated", populatedNote);
       }
     } catch (saveError) {
       console.error('Failed to save note:', saveError);
       setSyncStatus('error');
-      const axiosError = saveError as AxiosError<{ message?: string }>; // More specific type
+      const axiosError = saveError as AxiosError<{ message?: string }>;
       toast({
         title: 'Error saving note',
         description: axiosError?.response?.data?.message || 'Could not save your changes.',
         variant: 'destructive',
       });
-    } finally { // Ensure isSaving is reset
+    } finally {
         setIsSaving(false);
     }
   }, [user, isSaving, isReadOnlyView, toast, isNewNote, note?._id, router]);
 
-  // Debounced save function
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const debouncedSave = useCallback(
-    debounce(async (currentTitle: string, currentContent: string) => { 
-      // Autosave should not trigger the "significant change" notification for collaborators by itself.
-      // The API's isAutoSave flag handles this.
-      // Autosave also should not directly call emitUserFinishedEditingWithContent.
-      await handleSave(currentTitle, currentContent, false, true); 
-    }, 1500), 
-    [handleSave] 
+    debounce(async (currentTitle: string, currentContent: string) => {
+      await handleSave(currentTitle, currentContent, false, true);
+    }, 1500),
+    [handleSave]
   );
 
-  const handleQuillChange = useCallback((newContent: string, _delta: DeltaStatic, source: Sources /* _editor: ReactQuill.UnprivilegedEditor */) => {
-    if (source === 'user') { // Ensure note is loaded - removed && note check, as new notes need this
-      const cleanContent = DOMPurify.sanitize(newContent); 
+  const handleContentChange = (newContent: string, _delta: DeltaStatic, source: Sources) => { // Restored original signature
+    if (source === 'user') {
+      const cleanContent = DOMPurify.sanitize(newContent);
       setContent(cleanContent);
-      setUserMadeChangesInThisSession(true); // Mark that user has made changes
-      // Autosave will be triggered
-      debouncedSave(title, cleanContent); 
+      setUserMadeChangesInThisSession(true);
+      debouncedSave(title, cleanContent);
     }
-  }, [title, debouncedSave, setUserMadeChangesInThisSession]); // Removed note from deps
+  };
 
   const handleTitleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = event.target.value;
-    setTitle(newTitle.slice(0, MAX_TITLE_LENGTH)); 
-    setUserMadeChangesInThisSession(true); // Mark that user has made changes
-    // Autosave will be triggered
-    debouncedSave(newTitle.slice(0, MAX_TITLE_LENGTH), content); 
+    setTitle(newTitle.slice(0, MAX_TITLE_LENGTH));
+    setUserMadeChangesInThisSession(true);
+    debouncedSave(newTitle.slice(0, MAX_TITLE_LENGTH), content);
   };
 
-  // New handler for when the editor loses focus (or user signals "finished")
-  const handleEditorBlur = useCallback(() => {
+  const handleContentFocus = () => { // Restored
+    setContentOnLoadOrFocus(content);
+    setTitleOnLoadOrFocus(title);
+    setUserMadeChangesInThisSession(false);
+  };
+
+  const handleContentBlur = () => { // Restored
     if (!userMadeChangesInThisSession) {
-        console.log('[NoteEditor] handleEditorBlur: No changes made in this session, skipping emit.');
+        return;
+    }
+    if (note?._id && user && socketContext.emitUserFinishedEditingWithContent) {
+      const currentContentTrimmed = content.trim();
+      const contentSnapshotTrimmed = contentOnLoadOrFocus.trim();
+      const titleSnapshot = titleOnLoadOrFocus;
+      if (currentContentTrimmed !== contentSnapshotTrimmed || title !== titleSnapshot) {
+        socketContext.emitUserFinishedEditingWithContent(note._id, title, content);
+        setContentOnLoadOrFocus(content);
+        setTitleOnLoadOrFocus(title);
+        setUserMadeChangesInThisSession(false);
+      }
+    }
+  };
+  
+  const handleTitleFocus = () => { // Added for consistency, mirrors handleContentFocus
+    setContentOnLoadOrFocus(content);
+    setTitleOnLoadOrFocus(title);
+    setUserMadeChangesInThisSession(false);
+  };
+
+  const handleTitleBlur = () => { // Added for consistency, mirrors handleContentBlur
+     if (!userMadeChangesInThisSession) {
+        return;
+    }
+    if (note?._id && user && socketContext.emitUserFinishedEditingWithContent) {
+      const currentContentTrimmed = content.trim();
+      const contentSnapshotTrimmed = contentOnLoadOrFocus.trim();
+      const titleSnapshot = titleOnLoadOrFocus;
+      if (currentContentTrimmed !== contentSnapshotTrimmed || title !== titleSnapshot) {
+        socketContext.emitUserFinishedEditingWithContent(note._id, title, content);
+        setContentOnLoadOrFocus(content);
+        setTitleOnLoadOrFocus(title);
+        setUserMadeChangesInThisSession(false);
+      }
+    }
+  };
+
+
+  // Export functions - restored
+  const handleExportAsMarkdown = () => {
+    if (!note && !isNewNote) { // Check if note exists or if it's a new note
+      toast({ title: "Cannot Export", description: "Note data is not available for export.", variant: "destructive" });
+      return;
+    }
+    const currentTitle = title || 'Untitled Note';
+    const currentEditorContent = content || '';
+    const markdownTitle = `# ${currentTitle}\n\n`;
+    const markdownBody = turndownService.turndown(DOMPurify.sanitize(currentEditorContent));
+    const fullMarkdownContent = markdownTitle + markdownBody;
+    const blob = new Blob([fullMarkdownContent], { type: 'text/markdown;charset=utf-8' });
+    saveAs(blob, `${currentTitle}.md`);
+    toast({ title: "Exported as Markdown", description: `Note downloaded as ${currentTitle}.md` });
+  };
+
+  const handleExportAsText = () => {
+    if (!note && !isNewNote) {
+      toast({ title: "Cannot Export", description: "Note data is not available for export.", variant: "destructive" });
+      return;
+    }
+    const currentTitle = title || 'Untitled Note';
+    const currentEditorContent = content || '';
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = DOMPurify.sanitize(currentEditorContent);
+    const plainText = tempDiv.textContent || tempDiv.innerText || "";
+    const textBlob = new Blob([`${currentTitle}\n\n${plainText}`], { type: 'text/plain;charset=utf-8' });
+    saveAs(textBlob, `${currentTitle}.txt`);
+    toast({ title: "Exported as Plain Text", description: `Note downloaded as ${currentTitle}.txt` });
+  };
+
+  const handleExportAsHTML = () => {
+    if (!note && !isNewNote) {
+      toast({ title: "Cannot Export", description: "Note data is not available for export.", variant: "destructive" });
+      return;
+    }
+    const currentTitle = title || 'Untitled Note';
+    const currentEditorContent = content || '';
+    const htmlBlob = new Blob([`<h1>${currentTitle}</h1>\n${DOMPurify.sanitize(currentEditorContent)}`], { type: 'text/html;charset=utf-8' });
+    saveAs(htmlBlob, `${currentTitle}.html`);
+    toast({ title: "Exported as HTML", description: `Note downloaded as ${currentTitle}.html` });
+  };
+
+  const handleExportAsPDF = async () => {
+    if ((!note && !isNewNote) || !quillRef.current) {
+        toast({ title: "Cannot Export", description: "Note data or editor instance is not available for PDF export.", variant: "destructive" });
+        return;
+    }
+    const currentTitle = title || 'Untitled Note';
+    const currentEditorContent = content || '';
+
+    toast({ title: "Generating PDF...", description: "Please wait while the PDF is being prepared.", variant: "default" });
+    const actualEditorContentElement = quillRef.current?.getEditor().root;
+    if (!actualEditorContentElement) {
+        toast({ title: "Export Error", description: "Editor content area not found for PDF export.", variant: "destructive" });
         return;
     }
 
-    if (note?._id && user && socketContext.emitUserFinishedEditingWithContent) {
-      const currentContentTrimmed = content.trim();
-      // Compare with the state when the editor was last focused or loaded
-      const contentSnapshotTrimmed = contentOnLoadOrFocus.trim();
-      const titleSnapshot = titleOnLoadOrFocus;
+    const exportableRoot = document.createElement('div');
+    exportableRoot.style.padding = '20px';
+    exportableRoot.style.width = actualEditorContentElement.clientWidth > 0 ? actualEditorContentElement.clientWidth + 'px' : '800px'; // Fallback width
+    exportableRoot.style.fontFamily = getComputedStyle(actualEditorContentElement).fontFamily || 'sans-serif';
+    exportableRoot.style.fontSize = getComputedStyle(actualEditorContentElement).fontSize || '16px';
+    exportableRoot.style.lineHeight = getComputedStyle(actualEditorContentElement).lineHeight || 'normal';
+    // Apply basic Quill classes for structure if needed, but prioritize direct styling for PDF
+    // exportableRoot.className = 'ql-editor'; 
 
-      console.log('[NoteEditor] handleEditorBlur triggered.');
-      console.log(`[NoteEditor]   Current Title: "${title}" vs Snapshot: "${titleSnapshot}"`);
-      console.log(`[NoteEditor]   Current Content (trimmed): "${currentContentTrimmed.substring(0,50)}..."`);
-      console.log(`[NoteEditor]   Content on Load/Focus (trimmed): "${contentSnapshotTrimmed.substring(0,50)}..."`);
-      
-      if (currentContentTrimmed !== contentSnapshotTrimmed || title !== titleSnapshot) {
-        console.log('[NoteEditor] Significant change detected on blur. Emitting userFinishedEditingNoteWithContent.');
-        socketContext.emitUserFinishedEditingWithContent(note._id, title, content);
-        // Update the baseline for the next "finished" comparison
-        setContentOnLoadOrFocus(content); 
-        setTitleOnLoadOrFocus(title);
-        setUserMadeChangesInThisSession(false); // Reset after emitting changes
-      } else {
-        console.log('[NoteEditor] No significant change detected on blur compared to last focus/load state.');
-      }
-    }
-  }, [note, user, title, content, contentOnLoadOrFocus, titleOnLoadOrFocus, socketContext, userMadeChangesInThisSession, setUserMadeChangesInThisSession, setContentOnLoadOrFocus, setTitleOnLoadOrFocus]);
+    const titleElement = document.createElement('h1');
+    titleElement.textContent = currentTitle;
+    titleElement.style.marginBottom = '20px';
+    titleElement.style.fontSize = '24pt'; // Example: make title larger
+    titleElement.style.fontWeight = 'bold';
+    exportableRoot.appendChild(titleElement);
 
-  // Handler for when the Quill editor specifically gains focus
-  const handleEditorFocus = useCallback(() => {
-     // When editor gains focus, set the snapshot of content and title
-     // to the current state. This establishes the baseline for diffing on the *next* blur.
-     setContentOnLoadOrFocus(content);
-     setTitleOnLoadOrFocus(title);
-     setUserMadeChangesInThisSession(false); // Reset changes flag on new focus, as we're starting a new "editing session"
-     console.log('[NoteEditor] Editor focused. Snapshot for diff set to current content and title. Changes flag reset.');
-  }, [content, title, setContentOnLoadOrFocus, setTitleOnLoadOrFocus, setUserMadeChangesInThisSession]);
+    const contentCloneContainer = document.createElement('div');
+    contentCloneContainer.innerHTML = DOMPurify.sanitize(currentEditorContent, { USE_PROFILES: { html: true } });
+    exportableRoot.appendChild(contentCloneContainer);
 
+    // Temporarily append to body to ensure styles are computed for html2canvas
+    document.body.appendChild(exportableRoot);
 
-  // MOVED HANDLER FUNCTIONS START HERE
-  const handleNoteShared = () => {
-    if (note?._id) {
-      const fetchNoteAfterShare = async () => { 
-        try {
-          const response = await api.get(`/notes/${note._id}`);
-          setNote(response.data);
-        } catch (error) {
-          console.error('Failed to re-fetch note after sharing:', error);
-          toast({
-            title: 'Error updating note details',
-            description: 'Could not refresh note details after sharing action.',
-            variant: 'destructive',
-          });
+    try {
+        const canvas = await html2canvas(exportableRoot, {
+            scale: 2, // Higher scale for better quality
+            useCORS: true,
+            logging: false, // Reduce console noise
+            width: exportableRoot.offsetWidth,
+            height: exportableRoot.offsetHeight,
+            windowWidth: exportableRoot.scrollWidth,
+            windowHeight: exportableRoot.scrollHeight
+        });
+        document.body.removeChild(exportableRoot); // Clean up
+
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const margin = 10; // mm
+        const contentWidth = pdfWidth - (2 * margin);
+        const contentHeight = pdfHeight - (2 * margin);
+
+        const imgWidth = canvas.width;
+        const imgHeight = canvas.height;
+        const ratio = imgWidth / imgHeight;
+
+        let newImgHeight = contentWidth / ratio;
+        let newImgWidth = contentWidth;
+
+        if (newImgHeight > contentHeight) { // If image is too tall for one page (after fitting width)
+            // This part handles multi-page PDF generation for tall content
+            let currentPosition = margin;
+            let remainingImgHeight = imgHeight;
+            let sourceY = 0;
+
+            while (remainingImgHeight > 0) {
+                const pageCanvasHeight = Math.min(remainingImgHeight, (contentHeight / newImgHeight) * imgHeight );
+                const pageCanvas = document.createElement('canvas');
+                pageCanvas.width = imgWidth;
+                pageCanvas.height = pageCanvasHeight;
+                const pageCtx = pageCanvas.getContext('2d');
+
+                if (pageCtx) {
+                    pageCtx.drawImage(canvas, 0, sourceY, imgWidth, pageCanvasHeight, 0, 0, imgWidth, pageCanvasHeight);
+                    const pageImgData = pageCanvas.toDataURL('image/png');
+                    const renderedSliceHeight = (newImgWidth / (imgWidth / pageCanvasHeight));
+                    pdf.addImage(pageImgData, 'PNG', margin, currentPosition, newImgWidth, renderedSliceHeight);
+                    remainingImgHeight -= pageCanvasHeight;
+                    sourceY += pageCanvasHeight;
+                    if (remainingImgHeight > 0) {
+                        pdf.addPage();
+                        currentPosition = margin; // Reset position for new page
+                    }
+                } else {
+                    throw new Error("Failed to get 2D context for PDF page slicing.");
+                }
+            }
+        } else {
+             // Single page PDF
+            pdf.addImage(imgData, 'PNG', margin, margin, newImgWidth, newImgHeight);
         }
-      };
-      fetchNoteAfterShare();
+
+        pdf.save(`${currentTitle}.pdf`);
+        toast({ title: "Exported as PDF", description: `Note downloaded as ${currentTitle}.pdf` });
+    } catch (pdfError) {
+        console.error("Failed to export PDF:", pdfError);
+        toast({ title: "PDF Export Failed", description: `Could not generate PDF. ${pdfError instanceof Error ? pdfError.message : ''}`, variant: "destructive" });
+        if (document.body.contains(exportableRoot)) {
+            document.body.removeChild(exportableRoot); // Ensure cleanup on error
+        }
     }
   };
 
-  const confirmDelete = async () => {
+  const handleExportAsDOCX = () => {
+    if (!note && !isNewNote) {
+      toast({ title: "Cannot Export", description: "Note data is not available for export.", variant: "destructive" });
+      return;
+    }
+    const currentTitle = title || 'Untitled Note';
+    const currentEditorContent = content || '';
+
+    toast({ title: "Generating Word Document...", description: "Please wait while the .docx is being prepared.", variant: "default" });
+    try {
+        const fullHtml = `
+            <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${DOMPurify.sanitize(currentTitle)}</title>
+            <style>
+                body { font-family: Calibri, sans-serif; font-size: 11pt; margin: 1in; }
+                h1.doc-title { font-size: 22pt; font-weight: bold; margin-bottom: 20px; color: #2F5496; }
+                h1 { font-size: 16pt; color: #2F5496; margin-top: 24px; margin-bottom: 6px; }
+                h2 { font-size: 14pt; color: #2F5496; margin-top: 18px; margin-bottom: 4px; }
+                h3 { font-size: 12pt; color: #4F81BD; margin-top: 12px; margin-bottom: 3px; }
+                p { margin-bottom: 10px; line-height: 1.15; }
+                strong { font-weight: bold; }
+                em { font-style: italic; }
+                u { text-decoration: underline; }
+                s { text-decoration: line-through; }
+                blockquote { border-left: 4px solid #AEAAAA; margin-left: 0; padding-left: 1em; color: #555555; font-style: italic; }
+                ul, ol { margin-left: 20px; padding-left: 20px; }
+                li { margin-bottom: 5px; }
+                a { color: #0563C1; text-decoration: underline; }
+                pre, code { font-family: Consolas, monospace; background-color: #F5F5F5; padding: 2px 4px; border-radius: 3px; font-size: 0.9em; }
+                pre { padding: 10px; overflow-x: auto; }
+                /* Add more specific Quill format mappings if necessary */
+            </style>
+            </head><body>
+            <h1 class="doc-title">${DOMPurify.sanitize(currentTitle)}</h1>
+            ${DOMPurify.sanitize(currentEditorContent, { USE_PROFILES: { html: true } })}
+            </body></html>`;
+
+        const converted = htmlDocx.asBlob(fullHtml, { orientation: 'portrait', margins: { top: 720, right: 720, bottom: 720, left: 720 } }); // 720 TWIPs = 0.5 inch
+        saveAs(converted, `${currentTitle}.docx`);
+        toast({ title: "Exported as Word", description: `Note downloaded as ${currentTitle}.docx` });
+    } catch (docxError) {
+        console.error("Failed to export Word document:", docxError);
+        toast({ title: "Word Export Failed", description: `Could not generate .docx file. ${docxError instanceof Error ? docxError.message : ''}`, variant: "destructive" });
+    }
+  };
+
+  const handleManualSave = () => {
+    if (title.trim() === '' && content.trim() === '') {
+      toast({
+        title: "Cannot Save Empty Note",
+        description: "Please add a title or some content before saving.",
+        variant: "destructive",
+      });
+      return;
+    }
+    handleSave(title, content, true, false);
+  };
+
+  const handleDelete = async () => { // Renamed from confirmDelete for clarity
     if (!note || !note._id || isNewNote) return;
     try {
       await api.delete(`/notes/${note._id}`);
@@ -520,496 +635,300 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
       console.error('Failed to delete note:', deleteError);
       toast({ title: 'Error Deleting Note', description: 'Could not delete the note.', variant: 'destructive' });
     }
-    setIsDeleteDialogOpen(false); // Close dialog after action
+    setIsDeleteDialogOpen(false);
   };
 
-  const handleCopyTitle = () => {
-    if (!title) {
-      toast({ title: "Nothing to Copy", description: "Note title is empty.", variant: "default" });
-      return;
-    }
-    navigator.clipboard.writeText(title)
-      .then(() => {
-        toast({ title: "Title Copied", description: "Note title copied to clipboard as plain text." });
-      })
-      .catch(err => {
-        console.error("Failed to copy note title: ", err);
-        toast({ title: "Copy Failed", description: "Could not copy note title.", variant: "destructive" });
-      });
-  };
-
-  const handleCopyContent = async () => {
-    if (typeof window === 'undefined' || !navigator.clipboard) {
-      toast({ title: 'Error', description: 'Clipboard API not available in this browser.', variant: 'destructive' });
-      console.error('[NoteEditor] Clipboard API not available.');
-      return;
-    }
-
-    const editorContent = content || '';
-    const isEmptyContent = editorContent.trim() === '' || editorContent.trim() === '<p><br></p>' || editorContent.trim() === '<p></p>';
-
-    if (isEmptyContent) {
-      toast({ title: 'Nothing to Copy', description: 'The editor content is empty.', variant: 'default' });
-      return;
-    }
-
-    try {
-      if (navigator.clipboard.write && typeof ClipboardItem !== 'undefined') {
-        const htmlBlob = new Blob([editorContent], { type: 'text/html' });
-        const clipboardItem = new ClipboardItem({ 'text/html': htmlBlob });
-        await navigator.clipboard.write([clipboardItem]);
-        toast({ title: 'Content Copied', description: 'Note content (with formatting) copied to clipboard.' });
-      } else {
-        throw new Error('ClipboardItem API or navigator.clipboard.write is not supported.');
-      }
-    } catch (error) {
-      console.warn('[NoteEditor] Failed to copy rich text content, attempting plain text fallback:', error);
-      try {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = editorContent;
-        let plainText = (tempDiv.textContent || tempDiv.innerText || "").trim();
-
-        if (!plainText && !isEmptyContent) {
-            plainText = "[Unsupported content for plain text copy (e.g., image/video)]";
-            toast({ title: 'Content Copied (Partial)', description: 'Copied as plain text. Some content may not be supported.', variant: 'default' });
-        } else if (plainText) {
-            await navigator.clipboard.writeText(plainText);
-            toast({ title: 'Content Copied (Plain Text)', description: 'Note content copied as plain text.', variant: 'default' });
-        } else {
-          toast({ title: 'Nothing to Copy', description: 'Content is empty or could not be converted to plain text.', variant: 'default' });
-          return;
-        }
-      } catch (plainTextError) {
-        console.error('[NoteEditor] Failed to copy plain text content as fallback:', plainTextError);
-        toast({ title: 'Copy Failed', description: 'Could not copy note content as plain text.', variant: 'destructive' });
-      }
-    }
-  };
-
-  const handleExportMarkdown = () => {
-    if (!note && !isNewNote) {
+  const exportNote = async (format: 'txt' | 'md' | 'html' | 'pdf' | 'docx') => {
+    if (!note && !isNewNote && format !== 'txt') { // Allow empty export for txt
       toast({ title: "Cannot Export", description: "Note data is not available for export.", variant: "destructive" });
       return;
     }
-    const editorContent = content || '';
-    const isEmptyContent = editorContent.trim() === '' || editorContent.trim() === '<p><br></p>' || editorContent.trim() === '<p></p>';
+    const currentTitle = title || 'Untitled Note';
+    const currentEditorContent = content || '';
+    const isEmptyContent = currentEditorContent.trim() === '' || currentEditorContent.trim() === '<p><br></p>' || currentEditorContent.trim() === '<p></p>';
 
-    if (isEmptyContent && !title) { // Check if both title and content are effectively empty
+    if (isEmptyContent && !title && format !== 'txt') {
       toast({ title: 'Nothing to Export', description: 'Note title and content are empty.', variant: "default" });
       return;
     }
 
-    const noteTitle = title || 'Untitled Note';
-    const markdownTitle = `# ${noteTitle}\n\n`; // Add title as H1 heading
-    const markdownBody = turndownService.turndown(editorContent);
-    const fullMarkdownContent = markdownTitle + markdownBody;
-
-    const blob = new Blob([fullMarkdownContent], { type: 'text/markdown;charset=utf-8' });
-    const filename = `${noteTitle}.md`;
-    saveAs(blob, filename);
-    toast({ title: "Exported as Markdown", description: `Note downloaded as ${filename}` });
-  };
-
-  const handleExportPDF = async () => {
-    if (!note && !isNewNote) {
-      toast({ title: "Cannot Export", description: "Note data is not available for export.", variant: "destructive" });
-      return;
-    }
-    const editorContent = content || '';
-    const isEmptyContent = editorContent.trim() === '' || editorContent.trim() === '<p><br></p>' || editorContent.trim() === '<p></p>';
-
-    if (isEmptyContent && !title) { // Check if both title and content are effectively empty
-        toast({ title: "Nothing to Export", description: "Note title and content are empty.", variant: "default" });
-        return;
-    }
-
-    const actualEditorContentElement = quillEditorRef.current?.querySelector('.ql-editor') as HTMLElement | null;
-    if (!actualEditorContentElement) {
-      toast({ title: "Export Error", description: "Editor content area not found for PDF export.", variant: "destructive" });
-      console.error("[NoteEditor] .ql-editor element not found within quillEditorRef, cannot export PDF.");
-      return;
-    }
-
-    toast({ title: "Generating PDF...", description: "Please wait while the PDF is being prepared.", variant: "default" });
-
-    const exportableRoot = document.createElement('div');
-    exportableRoot.style.padding = '20px'; 
-    exportableRoot.style.width = actualEditorContentElement.clientWidth + 'px'; 
-
-    const titleElement = document.createElement('h1');
-    titleElement.textContent = title || 'Untitled Note';
-    titleElement.style.marginBottom = '20px'; 
-    titleElement.style.fontSize = '24pt'; 
-    titleElement.style.fontWeight = 'bold';
-    exportableRoot.appendChild(titleElement);
-
-    const contentClone = actualEditorContentElement.cloneNode(true) as HTMLElement;
-    contentClone.style.width = '100%'; 
-    exportableRoot.appendChild(contentClone);
-
-    document.body.appendChild(exportableRoot);
-
-    try {
-      const canvas = await html2canvas(exportableRoot, { 
-        useCORS: true, 
-        logging: false,
-        width: exportableRoot.offsetWidth, 
-        height: exportableRoot.offsetHeight, 
-        // windowWidth: exportableRoot.scrollWidth, // REMOVED INVALID OPTION
-        // windowHeight: exportableRoot.scrollHeight, // REMOVED INVALID OPTION
-      });
-
-      document.body.removeChild(exportableRoot); 
-
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'p',
-        unit: 'mm',
-        format: 'a4',
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const ratio = imgWidth / imgHeight;
-
-      const newImgWidthConst = pdfWidth - 20;
-      const newImgHeightConst = newImgWidthConst / ratio; 
-
-      let currentPosition = 10;
-
-      if (newImgHeightConst <= pdfHeight - 20) {
-        pdf.addImage(imgData, 'PNG', 10, currentPosition, newImgWidthConst, newImgHeightConst);
-      } else {
-        let remainingImgHeight = imgHeight;
-        let sourceY = 0;
-
-        while (remainingImgHeight > 0) {
-          const pdfPageContentHeight = pdfHeight - 20;
-          const sourceSliceHeight = Math.floor((pdfPageContentHeight / newImgHeightConst) * imgHeight);
-          const actualSliceHeight = Math.min(sourceSliceHeight, remainingImgHeight);
-
-          const pageCanvas = document.createElement('canvas');
-          pageCanvas.width = imgWidth;
-          pageCanvas.height = actualSliceHeight;
-          const pageCtx = pageCanvas.getContext('2d');
-
-          if (pageCtx) {
-            pageCtx.drawImage(canvas, 0, sourceY, imgWidth, actualSliceHeight, 0, 0, imgWidth, actualSliceHeight);
-            const pageImgData = pageCanvas.toDataURL('image/png');
-            const renderedSliceHeight = (newImgWidthConst / (imgWidth / actualSliceHeight));
-            pdf.addImage(pageImgData, 'PNG', 10, currentPosition, newImgWidthConst, renderedSliceHeight);
-            remainingImgHeight -= actualSliceHeight;
-            sourceY += actualSliceHeight;
-            if (remainingImgHeight > 0) {
-              pdf.addPage();
-              currentPosition = 10;
-            }
-          } else {
-            console.error("Could not get 2D context for page canvas during PDF export.");
-            toast({ title: "PDF Export Error", description: "Failed to process image for PDF pages.", variant: "destructive" });
-            return;
-          }
+    switch (format) {
+      case 'txt':
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = currentEditorContent;
+        const plainText = tempDiv.textContent || tempDiv.innerText || "";
+        const textBlob = new Blob([`${currentTitle}\n\n${plainText}`], { type: 'text/plain;charset=utf-8' });
+        saveAs(textBlob, `${currentTitle}.txt`);
+        toast({ title: "Exported as Plain Text", description: `Note downloaded as ${currentTitle}.txt` });
+        break;
+      case 'md':
+        const markdownTitle = `# ${currentTitle}\n\n`;
+        const markdownBody = turndownService.turndown(currentEditorContent);
+        const fullMarkdownContent = markdownTitle + markdownBody;
+        const mdBlob = new Blob([fullMarkdownContent], { type: 'text/markdown;charset=utf-8' });
+        saveAs(mdBlob, `${currentTitle}.md`);
+        toast({ title: "Exported as Markdown", description: `Note downloaded as ${currentTitle}.md` });
+        break;
+      case 'html':
+        const htmlBlob = new Blob([`<h1>${currentTitle}</h1>\n${currentEditorContent}`], { type: 'text/html;charset=utf-8' });
+        saveAs(htmlBlob, `${currentTitle}.html`);
+        toast({ title: "Exported as HTML", description: `Note downloaded as ${currentTitle}.html` });
+        break;
+      case 'pdf':
+        toast({ title: "Generating PDF...", description: "Please wait while the PDF is being prepared.", variant: "default" });
+        const actualEditorContentElement = quillRef.current?.getEditor().root; // Use Quill's root
+        if (!actualEditorContentElement) {
+          toast({ title: "Export Error", description: "Editor content area not found for PDF export.", variant: "destructive" });
+          return;
         }
-      }
-      
-      const filename = `${title || 'Untitled Note'}.pdf`;
-      pdf.save(filename);
-      toast({ title: "Exported as PDF", description: `Note downloaded as ${filename}` });
-
-    } catch (error) {
-      console.error("Failed to export PDF:", error);
-      toast({ title: "PDF Export Failed", description: "Could not generate PDF. See console for details.", variant: "destructive" });
+        const exportableRoot = document.createElement('div');
+        exportableRoot.style.padding = '20px';
+        exportableRoot.style.width = actualEditorContentElement.clientWidth + 'px';
+        const titleElement = document.createElement('h1');
+        titleElement.textContent = currentTitle;
+        titleElement.style.marginBottom = '20px'; titleElement.style.fontSize = '24pt'; titleElement.style.fontWeight = 'bold';
+        exportableRoot.appendChild(titleElement);
+        const contentClone = actualEditorContentElement.cloneNode(true) as HTMLElement;
+        contentClone.style.width = '100%';
+        exportableRoot.appendChild(contentClone);
+        document.body.appendChild(exportableRoot);
+        try {
+          const canvas = await html2canvas(exportableRoot, { useCORS: true, logging: false, width: exportableRoot.offsetWidth, height: exportableRoot.offsetHeight });
+          document.body.removeChild(exportableRoot);
+          const imgData = canvas.toDataURL('image/png');
+          const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+          const pdfWidth = pdf.internal.pageSize.getWidth();
+          const pdfHeight = pdf.internal.pageSize.getHeight();
+          const imgWidth = canvas.width;
+          const imgHeight = canvas.height;
+          const ratio = imgWidth / imgHeight;
+          const newImgWidthConst = pdfWidth - 20;
+          const newImgHeightConst = newImgWidthConst / ratio;
+          let currentPosition = 10;
+          if (newImgHeightConst <= pdfHeight - 20) {
+            pdf.addImage(imgData, 'PNG', 10, currentPosition, newImgWidthConst, newImgHeightConst);
+          } else {
+            let remainingImgHeight = imgHeight;
+            let sourceY = 0;
+            while (remainingImgHeight > 0) {
+              const pdfPageContentHeight = pdfHeight - 20;
+              const sourceSliceHeight = Math.floor((pdfPageContentHeight / newImgHeightConst) * imgHeight);
+              const actualSliceHeight = Math.min(sourceSliceHeight, remainingImgHeight);
+              const pageCanvas = document.createElement('canvas');
+              pageCanvas.width = imgWidth; pageCanvas.height = actualSliceHeight;
+              const pageCtx = pageCanvas.getContext('2d');
+              if (pageCtx) {
+                pageCtx.drawImage(canvas, 0, sourceY, imgWidth, actualSliceHeight, 0, 0, imgWidth, actualSliceHeight);
+                const pageImgData = pageCanvas.toDataURL('image/png');
+                const renderedSliceHeight = (newImgWidthConst / (imgWidth / actualSliceHeight));
+                pdf.addImage(pageImgData, 'PNG', 10, currentPosition, newImgWidthConst, renderedSliceHeight);
+                remainingImgHeight -= actualSliceHeight; sourceY += actualSliceHeight;
+                if (remainingImgHeight > 0) { pdf.addPage(); currentPosition = 10; }
+              } else { throw new Error("Failed to get 2D context for PDF page."); }
+            }
+          }
+          pdf.save(`${currentTitle}.pdf`);
+          toast({ title: "Exported as PDF", description: `Note downloaded as ${currentTitle}.pdf` });
+        } catch (pdfError) {
+          console.error("Failed to export PDF:", pdfError);
+          toast({ title: "PDF Export Failed", description: "Could not generate PDF.", variant: "destructive" });
+          if (document.body.contains(exportableRoot)) document.body.removeChild(exportableRoot);
+        }
+        break;
+      case 'docx':
+        toast({ title: "Generating Word Document...", description: "Please wait while the .docx is being prepared.", variant: "default" });
+        try {
+          const fullHtml = `
+            <!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${currentTitle}</title>
+            <style>body{font-family:sans-serif;font-size:11pt;margin:20px;}h1.doc-title{font-size:24pt;font-weight:bold;margin-bottom:20px;}h1,h2,h3,h4,h5,h6{margin-top:1em;margin-bottom:0.5em;}p{margin-bottom:10px;line-height:1.5;}strong{font-weight:bold;}em{font-style:italic;}u{text-decoration:underline;}s{text-decoration:line-through;}blockquote{border-left:4px solid #ccc;margin-left:0;padding-left:1em;color:#555;}ul,ol{margin-left:20px;padding-left:20px;}li{margin-bottom:5px;}a{color:blue;text-decoration:underline;}</style>
+            </head><body><h1 class="doc-title">${currentTitle}</h1>${currentEditorContent}</body></html>`;
+          const converted = htmlDocx.asBlob(fullHtml);
+          saveAs(converted, `${currentTitle}.docx`);
+          toast({ title: "Exported as Word", description: `Note downloaded as ${currentTitle}.docx` });
+        } catch (docxError) {
+          console.error("Failed to export Word document:", docxError);
+          toast({ title: "Word Export Failed", description: "Could not generate .docx file.", variant: "destructive" });
+        }
+        break;
+      default:
+        toast({ title: "Export Error", description: "Invalid export format selected.", variant: "destructive" });
     }
   };
-
-  const handleExportWord = async () => {
-    if (!note && !isNewNote) {
-      toast({ title: "Cannot Export", description: "Note data is not available for export.", variant: "destructive" });
-      return;
-    }
-     if (!content && !title) {
-        toast({ title: "Nothing to Export", description: "Note title and content are empty.", variant: "default" });
-        return;
-    }
-
-    toast({ title: "Generating Word Document...", description: "Please wait while the .docx is being prepared.", variant: "default" });
-
-    try {
-      const noteTitle = title || 'Untitled Note';
-      const htmlContentToExport = content || '<p></p>'; 
-      // Ensure template literal is correctly formatted and closed
-      const fullHtml = `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <title>${noteTitle}</title>
-          <style>
-            body { font-family: sans-serif; font-size: 11pt; margin: 20px; }
-            h1.doc-title { font-size: 24pt; font-weight: bold; margin-bottom: 20px; }
-            h1, h2, h3, h4, h5, h6 { margin-top: 1em; margin-bottom: 0.5em; }
-            p { margin-bottom: 10px; line-height: 1.5; }
-            strong { font-weight: bold; }
-            em { font-style: italic; }
-            u { text-decoration: underline; }
-            s { text-decoration: line-through; }
-            blockquote { border-left: 4px solid #ccc; margin-left: 0; padding-left: 1em; color: #555; }
-            ul, ol { margin-left: 20px; padding-left: 20px; }
-            li { margin-bottom: 5px; }
-            a { color: blue; text-decoration: underline; }
-          </style>
-        </head>
-        <body>
-          <h1 class="doc-title">${noteTitle}</h1>
-          ${htmlContentToExport}
-        </body>
-        </html>
-      `; // Ensure backtick is present and correctly placed
-
-      const converted = htmlDocx.asBlob(fullHtml);
-      const filename = `${title || 'Untitled Note'}.docx`;
-      saveAs(converted, filename);
-      toast({ title: "Exported as Word", description: `Note downloaded as ${filename}` });
-    } catch (error) {
-      console.error("Failed to export Word document:", error);
-      toast({ title: "Word Export Failed", description: "Could not generate .docx file. See console for details.", variant: "destructive" });
-    }
+  
+  const handleInitialSave = () => { // For "Create Note" button on new notes
+    handleSave(title, content, true, false);
   };
 
-  const getCollaboratorTriggerText = () => {
-    if (!note || !note.sharedWith || note.sharedWith.length === 0) {
-      return "No Collaborators"; 
-    }
-    const collaboratorUserObjects = note.sharedWith
-      .map(s => (typeof s.userId === 'object' ? s.userId : null))
-      .filter(Boolean) as User[];
-    if (collaboratorUserObjects.length === 0) {
-      return `${note.sharedWith.length} Collaborator${note.sharedWith.length > 1 ? 's' : ''}`;
-    }
-    if (collaboratorUserObjects.length === 1) {
-      return `Shared with ${collaboratorUserObjects[0].username}`;
-    }
-    if (collaboratorUserObjects.length === 2) {
-      return `Shared with ${collaboratorUserObjects[0].username} and ${collaboratorUserObjects[1].username}`;
-    }
-    return `Shared with ${collaboratorUserObjects[0].username}, ${collaboratorUserObjects[1].username} & ${collaboratorUserObjects.length - 2} more`;
-  };
-  // MOVED HANDLER FUNCTIONS END HERE
-
-  // Effect for emitting on unmount or fundamental context change
   useEffect(() => {
-    // This cleanup function runs when the component unmounts or when socketContext/noteId/userId changes
     return () => {
       const {
         userMadeChangesInThisSession: madeChanges,
-        note: currentNote,
-        title: currentTitle,
-        content: currentContentVal,
-        user: currentUserVal,
-        contentOnLoadOrFocus: snapshotContentVal,
-        titleOnLoadOrFocus: snapshotTitleVal,
-        isNewNote: isCurrentlyNewNote
+        note: currentNoteVal, // Renamed to avoid conflict
+        title: currentTitleVal, // Renamed
+        content: currentContentVal, // Renamed
+        user: currentUserVal, // Renamed
+        contentOnLoadOrFocus: snapshotContentVal, // Renamed
+        titleOnLoadOrFocus: snapshotTitleVal, // Renamed
+        isNewNote: isCurrentlyNewNoteVal // Renamed
       } = localStateRef.current;
 
-      // Do not attempt to emit if it was a new note that was never saved
-      if (isCurrentlyNewNote && !currentNote?._id) {
-        console.log('[NoteEditor] Unmount: New note was not saved, not emitting.');
+      if (isCurrentlyNewNoteVal && !currentNoteVal?._id) {
         return;
       }
-
-      if (madeChanges && currentNote?._id && currentUserVal && socketContext.emitUserFinishedEditingWithContent) {
-        console.log('[NoteEditor] Component unmounting or context changed. Checking for significant changes to emit.');
-        
+      if (madeChanges && currentNoteVal?._id && currentUserVal && socketContext.emitUserFinishedEditingWithContent) {
         const currentContentTrimmed = currentContentVal.trim();
         const contentSnapshotTrimmed = snapshotContentVal.trim();
         const titleSnapshot = snapshotTitleVal;
-
-        if (currentContentTrimmed !== contentSnapshotTrimmed || currentTitle !== titleSnapshot) {
-          console.log('[NoteEditor] Unmount/ContextChange: Significant difference from snapshot. Emitting userFinishedEditingNoteWithContent.');
-          socketContext.emitUserFinishedEditingWithContent(currentNote._id, currentTitle, currentContentVal);
-        } else {
-          console.log('[NoteEditor] Unmount/ContextChange: No significant difference from snapshot, not emitting.');
+        if (currentContentTrimmed !== contentSnapshotTrimmed || currentTitleVal !== titleSnapshot) {
+          socketContext.emitUserFinishedEditingWithContent(currentNoteVal._id, currentTitleVal, currentContentVal);
         }
-      } else {
-        console.log('[NoteEditor] Unmount/ContextChange: Conditions for emitting not met.');
       }
     };
-  }, [socketContext]); // Dependencies are minimal, ensuring cleanup is primarily for unmount or major context shifts.
-                      // Add note?._id and user?._id if re-registering cleanup for new note/user sessions is desired
-                      // without full component remount. For now, socketContext is likely sufficient if stable.
+  }, [socketContext]);
 
-  if (isLoading) {
-    return <div className="flex justify-center items-center h-screen">Loading note...</div>;
+
+  if (isLoading && !isNewNote) { // Allow new note to render form immediately
+    return (
+      <div className="flex justify-center items-center h-screen bg-background text-foreground">
+        <Loader2 className="h-12 w-12 animate-spin text-accent" />
+        <p className="ml-4 text-lg">Loading note...</p>
+      </div>
+    );
   }
 
-  // When navigating back to dashboard via button
-  const handleBackToDashboard = () => {
-    console.log("[NoteEditor] handleBackToDashboard called.");
-    if (userMadeChangesInThisSession && note?._id && user && socketContext.emitUserFinishedEditingWithContent) {
-        const currentContentTrimmed = content.trim();
-        const contentSnapshotTrimmed = contentOnLoadOrFocus.trim();
-        const titleSnapshot = titleOnLoadOrFocus;
-
-        if (currentContentTrimmed !== contentSnapshotTrimmed || title !== titleSnapshot) {
-            console.log("[NoteEditor] Pending significant changes detected on navigating back to dashboard. Emitting userFinishedEditingNoteWithContent.");
-            socketContext.emitUserFinishedEditingWithContent(note._id, title, content);
-            // No need to update snapshot here as we are navigating away
-        } else {
-            console.log("[NoteEditor] No significant changes on navigating back to dashboard compared to snapshot.");
-        }
-        setUserMadeChangesInThisSession(false); // Reset regardless of emit, as action is "done"
-    } else {
-        console.log("[NoteEditor] No pending changes or conditions not met for emitting on back to dashboard.");
-    }
-    router.push('/dashboard');
-  };
-
   return (
-    // Ensure this top-level div and all others use \`className\` for styles
-    <div className="container mx-auto p-4 flex flex-col h-full max-h-screen max-w-4xl">
-      <ShareModal 
-        isOpen={isShareModalOpen}
-        onClose={() => setIsShareModalOpen(false)}
-        note={note}
-        onNoteShared={handleNoteShared} 
-      />
-      <div className="sticky top-0 z-20 bg-card p-3 mb-3 border-b rounded-lg shadow">
-        <div className="flex items-center mb-2">
-          <Button variant="ghost" size="icon" onClick={handleBackToDashboard} title="Back to Dashboard">
-            <ArrowLeft className="h-5 w-5" />
+    <div className="flex flex-col h-full bg-background text-foreground p-4 md:p-6 space-y-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-2 sm:space-y-0">
+        <Button variant="outline" onClick={() => router.back()} className="self-start sm:self-center text-foreground border-border hover:bg-muted">
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back
+        </Button>
+        <div className="flex items-center space-x-2">
+          {syncStatus === 'syncing' && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
+          {syncStatus === 'synced' && <CheckCircle2 className="h-5 w-5 text-green-500" />}
+          {syncStatus === 'error' && <AlertTriangle className="h-5 w-5 text-red-500" />}
+          <span className="text-sm text-muted-foreground">
+            {lastSaved ? `Last saved: ${new Date(lastSaved).toLocaleTimeString()}` : (isNewNote ? 'Not saved yet' : '')}
+          </span>
+        </div>
+      </div>
+
+      {/* Action Buttons Moved Here */}
+      {!isReadOnlyView && (
+        <div className="flex flex-wrap items-center justify-end gap-2 mb-4 p-2 rounded-md bg-card border border-border">
+          <Button onClick={handleManualSave} disabled={isSaving || isLoading} className="bg-accent hover:bg-accent/90 text-accent-foreground">
+            <Save className="mr-2 h-4 w-4" /> {isSaving ? 'Saving...' : 'Save Changes'}
           </Button>
-          {/* Title Input - Placed beside back button for better alignment */}
-          <input
-            type="text"
-            value={title}
-            onChange={handleTitleChange} // CORRECTED: Use handleTitleChange
-            placeholder="Untitled Note"
-            className="text-xl md:text-2xl font-semibold bg-transparent border-none focus:ring-0 focus:outline-none flex-grow mx-2"
-            disabled={isReadOnlyView || !canEdit}
-            maxLength={MAX_TITLE_LENGTH}
-          />
-          {title.length >= MAX_TITLE_LENGTH && (
-            <span className="text-xs text-destructive whitespace-nowrap">Max length</span>
-          )}
-          {/* Action Buttons - Grouped to the right */}
-          <div className="flex items-center gap-2 ml-auto">
-            {!isNewNote && canShare && (
-              <Button variant="outline" size="sm" onClick={() => setIsShareModalOpen(true)} disabled={isSaving || isLoading} title="Share Note">
-                <Users className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">Share</span>
-              </Button>
-            )}
-            {!isNewNote && canDelete && (
-              <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm" disabled={isSaving || isLoading} title="Delete Note">
-                    <Trash2 className="h-4 w-4 md:mr-2" /> <span className="hidden md:inline">Delete</span>
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This action cannot be undone. This will permanently delete the note.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-            <Button onClick={() => handleSave(title, content, true, false)} disabled={isSaving || isReadOnlyView || isLoading} size="sm" title="Save Note">
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin md:mr-2" /> : <Save className="h-4 w-4 md:mr-2" />}
-              <span className="hidden md:inline">Save</span>
+
+          {canShare && !isNewNote && (
+            <Button variant="outline" onClick={() => setIsShareModalOpen(true)} className="border-accent-foreground/30 hover:bg-accent/20">
+              <Users className="mr-2 h-4 w-4 text-accent" /> Share
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" title="Copy Options" disabled={isLoading}>
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleCopyTitle} disabled={!title}>Copy Title</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleCopyContent} disabled={!content || content.trim() === '' || content.trim() === '<p><br></p>'}>Copy Content</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" title="Export Note" disabled={isLoading || (!note && isNewNote && (!title && !content))}>
-                  <Download className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExportMarkdown} disabled={(!title && !content)}>Export as Markdown (.md)</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportPDF} disabled={(!title && !content)}>Export as PDF (.pdf)</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportWord} disabled={(!title && !content)}>Export as Word (.docx)</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
+          )}
 
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            {syncStatus === 'syncing' && <span className="flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> Syncing...</span>}
-            {syncStatus === 'synced' && lastSaved && !isSaving && <span className="flex items-center gap-1"><CheckCircle2 size={14} className="text-green-500" /> Last saved: {new Date(lastSaved).toLocaleTimeString()}</span>}
-            {syncStatus === 'error' && <span className="flex items-center gap-1"><AlertTriangle size={14} className="text-red-500" /> Error saving.</span>}
-            {isReadOnlyView && <span className="flex items-center gap-1"><Eye size={14} /> Read-only</span>}
-          </div>
-          <div className="flex items-center gap-2">
-            {note && note.sharedWith && note.sharedWith.length > 0 && !isLoading && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="text-sm flex items-center gap-1 px-2 py-1 h-auto" title="View Collaborators">
-                    <Users size={16} />
-                    <span className="hidden sm:inline">{getCollaboratorTriggerText()}</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                  <div className="px-2 py-1.5 text-sm font-semibold">Collaborators</div>
-                  <DropdownMenuSeparator />
-                  {note.sharedWith.map((share) => {
-                    const userObject = typeof share.userId === 'object' ? share.userId : null;
-                    const username = userObject ? userObject.username : (share.email ? share.email.split('@')[0] : 'User'); // Fallback for username
-                    const email = userObject ? userObject.email : share.email;
-                    const key = userObject ? userObject._id : (typeof share.userId === 'string' ? share.userId : share.email); // Ensure key is string
-                    return (
-                      <DropdownMenuItem key={key} className="flex flex-col items-start cursor-default">
-                        <span className="font-medium">{username}</span>
-                        <span className="text-xs text-muted-foreground">{email || 'No email'} - {share.role}</span>
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
+          {canDelete && !isNewNote && (
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" className="bg-red-600 hover:bg-red-700 text-white">
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-background border-border">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete the note.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="hover:bg-muted/50">Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Delete</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          
+          {!isNewNote && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="border-accent-foreground/30 hover:bg-accent/20">
+                  <Download className="mr-2 h-4 w-4 text-accent" /> Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-popover border-border text-popover-foreground">
+                <DropdownMenuItem onClick={handleExportAsMarkdown} className="hover:bg-accent/10 focus:bg-accent/20">Markdown (.md)</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportAsText} className="hover:bg-accent/10 focus:bg-accent/20">Text (.txt)</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportAsHTML} className="hover:bg-accent/10 focus:bg-accent/20">HTML (.html)</DropdownMenuItem>
+                <DropdownMenuSeparator className="bg-border" />
+                <DropdownMenuItem onClick={handleExportAsPDF} className="hover:bg-accent/10 focus:bg-accent/20">PDF (.pdf)</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportAsDOCX} className="hover:bg-accent/10 focus:bg-accent/20">Word (.docx)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
+      )}
+
+      <input
+        type="text"
+        value={title}
+        onChange={handleTitleChange}
+        onFocus={handleTitleFocus}
+        onBlur={handleTitleBlur}
+        placeholder="Note Title"
+        className="text-2xl font-bold p-2 rounded-md bg-input border border-border focus:ring-2 focus:ring-accent-foreground text-foreground placeholder-muted-foreground"
+        maxLength={MAX_TITLE_LENGTH}
+        disabled={isLoading || isReadOnlyView}
+      />
+      {title.length >= MAX_TITLE_LENGTH && (
+        <p className="text-xs text-red-500">Maximum title length of {MAX_TITLE_LENGTH} characters reached.</p>
+      )}
+
+      <div ref={quillEditorRef} className="flex-grow ql-editor-container min-h-[300px] bg-card border border-border rounded-md p-1 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="h-8 w-8 animate-spin text-accent" />
+          </div>
+        ) : (
+          <ReactQuill
+            ref={quillRef}
+            theme="snow"
+            value={content}
+            onChange={handleContentChange}
+            onFocus={handleContentFocus} // Restored
+            onBlur={handleContentBlur} // Restored
+            modules={modules}
+            formats={quillFormats}
+            readOnly={isReadOnlyView}
+            placeholder={isReadOnlyView ? "You have read-only access." : "Start writing your note..."}
+            className={`h-full w-full ${isReadOnlyView ? 'bg-muted/30' : 'bg-transparent'}`}
+            style={{ minHeight: '400px' }} // Ensure Quill itself takes up space
+          />
+        )}
       </div>
 
-      {/* Editor Section - Takes remaining height */}
-      <div
-        ref={quillEditorRef}
-        className="flex-grow flex flex-col prose dark:prose-invert max-w-none rounded-md border border-input bg-transparent overflow-hidden"
-      >
-        <ReactQuill
-          value={content}
-          onChange={handleQuillChange}
-          onBlur={handleEditorBlur} // Add onBlur to ReactQuill
-          onFocus={handleEditorFocus} // Add onFocus to ReactQuill
-          readOnly={isReadOnlyView || !canEdit || isLoading}
-          modules={modules}
-          formats={quillFormats}
-          theme="snow"
-          placeholder={isLoading ? "Loading note..." : (isReadOnlyView ? "This note is read-only." : "Start writing your note...")}
-          className="flex-grow min-h-0 h-full bg-transparent text-foreground [&>.ql-container]:border-none [&>.ql-toolbar]:border-none [&>.ql-toolbar]:rounded-t-md [&>.ql-container]:flex-grow [&>.ql-container>.ql-editor]:p-4 md:[&>.ql-container>.ql-editor]:p-6 [&>.ql-container]:overflow-y-auto"
-          style={{ height: '60vh' }} // Added fixed height of 60vh
+      {note && !isNewNote && (
+        <ShareModal
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+          note={note}
+          onNoteShared={async () => {
+            // Re-fetch note data to update sharing status and content if necessary
+            if (note?._id) {
+              try {
+                const response = await api.get(`/notes/${note._id}`);
+                setNote(response.data);
+                // Optionally, update title and content if they could have changed due to sharing actions (e.g., if a shared user edited)
+                // setTitle(response.data.title);
+                // setContent(response.data.content);
+                // setLastSaved(new Date(response.data.updatedAt));
+                toast({ title: "Sharing Updated", description: "Note sharing information has been refreshed." });
+              } catch (error) {
+                console.error("[NoteEditor] Error re-fetching note after share:", error);
+                toast({ title: "Refresh Error", description: "Could not refresh note details after sharing.", variant: "destructive" });
+              }
+            }
+          }}
         />
-      </div>
+      )}
     </div>
   );
 };

@@ -22,6 +22,8 @@ import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AuthResponse, LoginFormData } from '@/types'; // Ensure LoginFormData is imported if used, or use LoginFormValues
 import api from '@/lib/api'; // Import the api utility
+import { motion } from 'framer-motion';
+import { Loader2 } from 'lucide-react';
 
 const loginFormSchema = z.object({
   email: z.string().email({ message: 'Invalid email address.' }),
@@ -31,7 +33,7 @@ const loginFormSchema = z.object({
 type LoginFormValues = z.infer<typeof loginFormSchema>;
 
 const LoginForm: React.FC = () => {
-  const { login } = useAuth();
+  const { login, loading, error } = useAuth();
   // const router = useRouter(); // Not strictly needed
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -80,53 +82,68 @@ const LoginForm: React.FC = () => {
   };
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle className="text-2xl">Login</CardTitle>
-        <CardDescription>Enter your email below to login to your account.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input type="email" placeholder="m@example.com" {...field} disabled={isLoading} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="••••••••" {...field} disabled={isLoading} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Logging in...' : 'Login'}
-            </Button>
-          </form>
-        </Form>
-      </CardContent>
-      <CardFooter className="text-center text-sm">
-        Don&apos;t have an account?{' '}
-        <Link href="/register" className="underline">
-          Sign up
-        </Link>
-      </CardFooter>
-    </Card>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+    >
+      <Card className="w-full max-w-md shadow-xl bg-transparent border-none">
+        <CardHeader>
+          <CardTitle className="text-3xl font-bold text-center text-[hsl(var(--accent-primary))]">Login</CardTitle>
+          <CardDescription className="text-center text-neutral-200 dark:text-neutral-300">
+            Access your account to continue your note-taking journey.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-neutral-100 dark:text-neutral-200">Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="m@example.com" {...field} disabled={isLoading} className="bg-background" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-neutral-100 dark:text-neutral-200">Password</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••••" {...field} disabled={isLoading} className="bg-background" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {error && <p className="text-sm font-medium text-destructive">{error}</p>}
+              <Button 
+                type="submit" 
+                className="w-full bg-[hsl(var(--accent-primary))] hover:bg-[hsl(var(--accent-primary)/0.9)] text-[hsl(var(--accent-primary-foreground))]" 
+                disabled={isLoading || loading} // Combined isLoading and loading from useAuth
+              >
+                {(isLoading || loading) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Login'}
+              </Button>
+            </form>
+          </Form>
+        </CardContent>
+        <CardFooter className="flex flex-col items-center space-y-2">
+          <p className="text-sm text-neutral-200 dark:text-neutral-300">
+            Don&apos;t have an account?{' '}
+            <Link href="/register" className="font-semibold text-[hsl(var(--accent-primary))] hover:underline">
+              Register here
+            </Link>
+          </p>
+        </CardFooter>
+      </Card>
+    </motion.div>
   );
 };
 

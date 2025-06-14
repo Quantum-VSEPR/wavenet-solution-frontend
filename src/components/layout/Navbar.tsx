@@ -16,28 +16,33 @@ const Navbar: React.FC = () => {
   };
 
   return (
-    <nav className="bg-background border-b">
+    <nav className="bg-transparent border-b border-white/20 backdrop-blur-sm sticky top-0 z-50">
       <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          <Link href="/dashboard" className="text-2xl font-bold">
-            WaveNet Notes
+        <div className="flex items-center justify-between h-16"> {/* Reverted navbar height */}
+          {/* Left side: Logo */}
+          <Link href={user ? "/dashboard" : "/"} className="text-2xl font-bold text-foreground">
+            WaveNet
           </Link>
-          <div className="flex items-center space-x-4">
+
+          {/* Middle: Search Bar - REMOVED */}
+
+          {/* Right side: Controls */}
+          <div className="flex items-center space-x-3 md:space-x-4">
             <ModeToggle />
             {user ? (
               <>
                 <NotificationBell /> {/* Added */}
-                <span className="text-sm">Hi, {user.username}</span>
-                <Button variant="outline" onClick={handleLogout}>
+                <span className="text-sm text-foreground">Hi, {user.username}</span>
+                <Button variant="outline" onClick={handleLogout} className="text-foreground border-foreground hover:bg-foreground/10 hover:text-foreground">
                   Logout
                 </Button>
               </>
             ) : (
               <>
-                <Button variant="outline" asChild>
+                <Button variant="outline" asChild className="text-foreground border-foreground hover:bg-foreground/10 hover:text-foreground">
                   <Link href="/login">Login</Link>
                 </Button>
-                <Button asChild>
+                <Button asChild className="bg-accent-primary hover:bg-accent-primary/90 text-accent-primary-foreground">
                   <Link href="/register">Sign Up</Link>
                 </Button>
               </>
