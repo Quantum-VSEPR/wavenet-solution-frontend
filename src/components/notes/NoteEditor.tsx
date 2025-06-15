@@ -490,20 +490,38 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
     toast({ title: "Exported as HTML", description: `Note downloaded as ${currentTitle}.html` });
   };
 
+  /*
   const handleExportAsPDF = async () => {
-    if ((!note && !isNewNote) || !quillRef.current) {
-        toast({ title: "Cannot Export", description: "Note data or editor instance is not available for PDF export.", variant: "destructive" });
+    if (!note && !isNewNote) {
+        toast({ title: "Cannot Export PDF", description: "Note data is not available for export. Please ensure the note is loaded.", variant: "destructive" });
         return;
     }
+
+    if (!quillRef.current) {
+        toast({ title: "Cannot Export PDF", description: "Editor reference (quillRef) is not available. Please try again shortly.", variant: "destructive" });
+        return;
+    }
+
     const currentTitle = title || 'Untitled Note';
-    const currentEditorContent = content || '';
+    // const currentEditorContent = content || ''; // Content is taken directly from editor for PDF
 
     toast({ title: "Generating PDF...", description: "Please wait while the PDF is being prepared.", variant: "default" });
-    const actualEditorContentElement = quillRef.current?.getEditor().root;
-    if (!actualEditorContentElement) {
-        toast({ title: "Export Error", description: "Editor content area not found for PDF export.", variant: "destructive" });
+    
+    const editor = quillRef.current.getEditor();
+    if (!editor) {
+        toast({ title: "Export PDF Error", description: "Failed to get editor instance from Quill. Please try again.", variant: "destructive" });
         return;
     }
+
+    const actualEditorContentElement = editor.root;
+    if (!actualEditorContentElement) {
+        toast({ title: "Export PDF Error", description: "Editor content area (root) not found. Please try again.", variant: "destructive" });
+        return;
+    }
+    
+    // Ensure currentEditorContent is up-to-date from the editor for PDF generation
+    const currentEditorContent = editor.getHTML();
+
 
     const exportableRoot = document.createElement('div');
     exportableRoot.style.padding = '20px';
@@ -598,6 +616,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
         }
     }
   };
+  */
 
   const handleExportAsDOCX = () => {
     if (!note && !isNewNote) {
@@ -708,6 +727,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
         saveAs(htmlBlob, `${currentTitle}.html`);
         toast({ title: "Exported as HTML", description: `Note downloaded as ${currentTitle}.html` });
         break;
+      /*
       case 'pdf':
         toast({ title: "Generating PDF...", description: "Please wait while the PDF is being prepared.", variant: "default" });
         const actualEditorContentElement = quillRef.current?.getEditor().root; // Use Quill's root
@@ -715,20 +735,20 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
           toast({ title: "Export Error", description: "Editor content area not found for PDF export.", variant: "destructive" });
           return;
         }
-        const exportableRoot = document.createElement('div');
-        exportableRoot.style.padding = '20px';
-        exportableRoot.style.width = actualEditorContentElement.clientWidth + 'px';
-        const titleElement = document.createElement('h1');
-        titleElement.textContent = currentTitle;
-        titleElement.style.marginBottom = '20px'; titleElement.style.fontSize = '24pt'; titleElement.style.fontWeight = 'bold';
-        exportableRoot.appendChild(titleElement);
+        const exportableRootPdf = document.createElement('div'); // Renamed to avoid conflict if handleExportAsPDF is uncommented
+        exportableRootPdf.style.padding = '20px';
+        exportableRootPdf.style.width = actualEditorContentElement.clientWidth + 'px';
+        const titleElementPdf = document.createElement('h1'); // Renamed
+        titleElementPdf.textContent = currentTitle;
+        titleElementPdf.style.marginBottom = '20px'; titleElementPdf.style.fontSize = '24pt'; titleElementPdf.style.fontWeight = 'bold';
+        exportableRootPdf.appendChild(titleElementPdf);
         const contentClone = actualEditorContentElement.cloneNode(true) as HTMLElement;
         contentClone.style.width = '100%';
-        exportableRoot.appendChild(contentClone);
-        document.body.appendChild(exportableRoot);
+        exportableRootPdf.appendChild(contentClone);
+        document.body.appendChild(exportableRootPdf);
         try {
-          const canvas = await html2canvas(exportableRoot, { useCORS: true, logging: false, width: exportableRoot.offsetWidth, height: exportableRoot.offsetHeight });
-          document.body.removeChild(exportableRoot);
+          const canvas = await html2canvas(exportableRootPdf, { useCORS: true, logging: false, width: exportableRootPdf.offsetWidth, height: exportableRootPdf.offsetHeight });
+          document.body.removeChild(exportableRootPdf);
           const imgData = canvas.toDataURL('image/png');
           const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
           const pdfWidth = pdf.internal.pageSize.getWidth();
@@ -766,9 +786,10 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
         } catch (pdfError) {
           console.error("Failed to export PDF:", pdfError);
           toast({ title: "PDF Export Failed", description: "Could not generate PDF.", variant: "destructive" });
-          if (document.body.contains(exportableRoot)) document.body.removeChild(exportableRoot);
+          if (document.body.contains(exportableRootPdf)) document.body.removeChild(exportableRootPdf);
         }
         break;
+      */
       case 'docx':
         toast({ title: "Generating Word Document...", description: "Please wait while the .docx is being prepared.", variant: "default" });
         try {
@@ -896,7 +917,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
                   <DropdownMenuItem onClick={handleExportAsText} className="hover:bg-accent/10 focus:bg-accent/20">Text (.txt)</DropdownMenuItem>
                   <DropdownMenuItem onClick={handleExportAsHTML} className="hover:bg-accent/10 focus:bg-accent/20">HTML (.html)</DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-border" />
-                  <DropdownMenuItem onClick={handleExportAsPDF} className="hover:bg-accent/10 focus:bg-accent/20">PDF (.pdf)</DropdownMenuItem>
+                  {/* <DropdownMenuItem onClick={handleExportAsPDF} className="hover:bg-accent/10 focus:bg-accent/20">PDF (.pdf)</DropdownMenuItem> */}
                   <DropdownMenuItem onClick={handleExportAsDOCX} className="hover:bg-accent/10 focus:bg-accent/20">Word (.docx)</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
