@@ -28,8 +28,8 @@ import { debounce } from 'lodash';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import TurndownService from 'turndown';
 import { saveAs } from 'file-saver';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+// import jsPDF from 'jspdf';
+// import html2canvas from 'html2canvas';
 import DOMPurify from 'dompurify';
 import htmlDocx from 'html-docx-js/dist/html-docx';
 import { DeltaStatic, Sources } from 'quill';
@@ -235,6 +235,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
         
         // If the current user has focus in the editor, they are actively editing.
         // Don't apply incoming content changes to prevent disruption.
+      
         if (editor?.hasFocus()) {
           toast({
             title: "Collaborator saved changes",
