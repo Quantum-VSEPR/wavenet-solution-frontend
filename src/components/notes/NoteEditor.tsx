@@ -113,7 +113,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
 
   const modules = useMemo(() => ({
     toolbar: [
-      [{ 'font': QUILL_FONT_WHITELIST }, { 'header': [1, 2, 3, 4, 5, 6, false] }],
+      [{ 'font': QUILL_FONT_WHITELIST }],
       ['bold', 'italic', 'underline', 'strike', 'blockquote', 'code-block'],
       [{'list': 'ordered'}, {'list': 'bullet'}, {'indent': '-1'}, {'indent': '+1'}],
       [{ 'script': 'sub'}, { 'script': 'super' }],
@@ -947,6 +947,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
             onClose={() => setIsShareModalOpen(false)}
             note={note}
             onNoteShared={async () => {
+              console.log("DEBUG: NoteEditor - onNoteShared callback triggered");
               // Re-fetch note data to update sharing status and content if necessary
               if (note?._id) {
                 try {
@@ -956,7 +957,7 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ noteId }) => {
                   // setTitle(response.data.title);
                   // setContent(response.data.content);
                   // setLastSaved(new Date(response.data.updatedAt));
-                  toast({ title: "Sharing Updated", description: "Note sharing information has been refreshed." });
+                  // toast({ title: "Sharing Updated", description: "Note sharing information has been refreshed." });
                 } catch (error) {
                   console.error("[NoteEditor] Error re-fetching note after share:", error);
                   toast({ title: "Refresh Error", description: "Could not refresh note details after sharing.", variant: "destructive" });

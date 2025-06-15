@@ -91,6 +91,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
         email: selectedUser.email,
         role: selectedRole,
       });
+      console.log("DEBUG: ShareModal - handleShareNote toast", { title: 'Note Shared', description: `Successfully shared with ${selectedUser.email}.` });
       toast({
         title: 'Note Shared',
         description: `Successfully shared with ${selectedUser.email}.`,
@@ -127,6 +128,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
     if (!note) return;
     try {
       await api.delete(`/notes/${note._id}/share/${userIdToUnshare}`);
+      console.log("DEBUG: ShareModal - handleUnshareNote toast", { title: 'User Unshared', description: 'User has been removed from this note.' });
       toast({
         title: 'User Unshared',
         description: 'User has been removed from this note.',
@@ -173,6 +175,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, note, onNoteSh
         email: emailToUpdate, // Use the determined email
         role: newRole,
       });
+      console.log("DEBUG: ShareModal - handleRoleChange toast", { title: 'Role Updated', description: `User role has been updated to ${newRole}.` });
       toast({
         title: 'Role Updated',
         description: `User role has been updated to ${newRole}.`,
